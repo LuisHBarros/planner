@@ -1,0 +1,19 @@
+{
+  "task.status.todo": "To Do",
+  "task.status.doing": "Doing",
+  "task.status.blocked": "Blocked",
+  "task.status.done": "Done",
+  "task.priority.low": "Low",
+  "task.priority.medium": "Medium",
+  "task.priority.high": "High",
+  "note.task_created": "Task created by {user}",
+  "note.status_changed": "{user} changed status from {old_status} to {new_status}",
+  "note.task_claimed": "Task claimed by {user}",
+  "note.progress_updated_manual": "{user} updated progress to {percentage}%",
+  "error.task.role_not_in_team": "Role must belong to project's team",
+  "error.task.already_claimed": "Task already claimed",
+  "error.task.invalid_status_transition": "Invalid status transition from {old_status} to {new_status}",
+  "error.task.cannot_claim": "Cannot claim task: {reason}",
+  "error.dependency.circular": "Circular dependency detected",
+  "error.dependency.self_reference": "Task cannot depend on itself"
+}

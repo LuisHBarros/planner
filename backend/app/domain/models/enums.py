@@ -1,0 +1,60 @@
+"""Domain enums."""
+from enum import Enum
+
+
+class TaskStatus(str, Enum):
+    """Task status enum (BR-004)."""
+    TODO = "todo"
+    DOING = "doing"
+    BLOCKED = "blocked"
+    DONE = "done"
+
+
+class TaskPriority(str, Enum):
+    """Task priority enum."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class RoleLevel(str, Enum):
+    """Role level enum."""
+    JUNIOR = "junior"
+    MID = "mid"
+    SENIOR = "senior"
+    LEAD = "lead"
+    SPECIALIST = "specialist"
+
+
+class ProjectStatus(str, Enum):
+    """Project status enum."""
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class CompanyPlan(str, Enum):
+    """Company plan enum."""
+    FREE = "free"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"
+
+
+class DependencyType(str, Enum):
+    """Task dependency type enum."""
+    BLOCKS = "blocks"
+    RELATES_TO = "relates_to"
+
+
+class NoteType(str, Enum):
+    """Note type enum."""
+    COMMENT = "comment"
+    STATUS_CHANGE = "status_change"
+    ASSIGNMENT = "assignment"
+    BLOCKER = "blocker"
+    SYSTEM = "system"
+
+
+class CompletionSource(str, Enum):
+    """Task completion percentage source."""
+    MANUAL = "manual"
+    AI = "ai"
