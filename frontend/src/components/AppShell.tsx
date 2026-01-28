@@ -211,14 +211,14 @@ export const AppShell: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-stone-50 via-amber-50 to-orange-50">
-      <header className="border-b border-amber-200/30 bg-white/60 backdrop-blur-sm sticky top-0 z-20">
+    <div className="min-h-screen bg-background text-text-primary">
+      <header className="border-b border-border-subtle bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="max-w-[1800px] mx-auto px-8 py-5 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-light text-stone-800 tracking-tight mb-1">
+            <h1 className="text-3xl font-light text-text-primary tracking-tight mb-1">
               Planner MVP
             </h1>
-            <p className="text-sm text-stone-500">
+            <p className="text-sm text-text-secondary">
               Connected to backend API • Company, teams, roles, projects, tasks & invites
             </p>
           </div>
@@ -226,19 +226,19 @@ export const AppShell: React.FC = () => {
             <input
               value={demoUserId}
               onChange={(e) => setDemoUserId(e.target.value)}
-              className="px-3 py-2 text-xs border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none w-64"
+              className="px-3 py-2 text-xs border border-border-subtle rounded-md focus:ring-2 focus:ring-brand focus:border-transparent outline-none w-64 bg-card text-text-primary placeholder:text-text-secondary/70"
               placeholder="Demo user_id for /me and task actions"
             />
             <button
               onClick={handleReloadMyTeams}
-              className="px-4 py-2 bg-white text-stone-700 border border-stone-200 rounded-lg font-medium text-xs hover:bg-stone-50 transition-all flex items-center gap-2"
+              className="px-4 py-2 bg-card text-text-primary border border-border-subtle rounded-md font-medium text-xs hover:bg-surface transition-all flex items-center gap-2"
             >
               <Users className="w-4 h-4" />
               Load /me/teams
             </button>
             <button
               onClick={handleCreateInvite}
-              className="px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-lg font-medium text-xs hover:from-amber-700 hover:to-orange-700 transition-all shadow-sm hover:shadow-md flex items-center gap-2"
+              className="px-4 py-2 bg-brand text-white rounded-md font-medium text-xs hover:brightness-110 transition-all shadow-sm hover:shadow-md flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
               Create Team Invite
@@ -250,15 +250,15 @@ export const AppShell: React.FC = () => {
       <main className="max-w-[1800px] mx-auto px-8 py-8">
         <div className="flex gap-6">
           <nav className="w-56 flex-shrink-0">
-            <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-sm border border-orange-100/60 p-3 space-y-1">
+            <div className="bg-surface/90 backdrop-blur-sm rounded-2xl shadow-sm border border-border-subtle p-3 space-y-1">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-left transition-all ${
                     activeTab === tab.id
-                      ? "bg-gradient-to-r from-amber-100 to-orange-100 text-amber-900 shadow-sm"
-                      : "text-stone-600 hover:bg-stone-50"
+                      ? "bg-card text-text-primary shadow-sm"
+                      : "text-text-secondary hover:bg-surface"
                   }`}
                 >
                   {tab.icon}
@@ -267,7 +267,7 @@ export const AppShell: React.FC = () => {
               ))}
             </div>
 
-            <div className="mt-4 text-xs text-stone-500">
+            <div className="mt-4 text-xs text-text-secondary">
               <div className="font-semibold mb-1">Demo IDs</div>
               <div>Company: {DEMO_COMPANY_ID}</div>
               <div>Team: {DEMO_TEAM_ID}</div>
@@ -277,13 +277,13 @@ export const AppShell: React.FC = () => {
 
           <section className="flex-1 space-y-6">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-4 py-3">
+              <div className="bg-red-50/90 border border-red-300 text-red-900 text-sm rounded-lg px-4 py-3">
                 {error}
               </div>
             )}
 
             {loading && (
-              <div className="bg-white/70 rounded-xl border border-amber-100/70 p-4 text-sm text-stone-500">
+              <div className="bg-surface rounded-xl border border-border-subtle p-4 text-sm text-text-secondary">
                 Loading data from API…
               </div>
             )}
@@ -466,14 +466,14 @@ const StatCard: React.FC<{
   label: string;
   value: React.ReactNode;
 }> = ({ icon, label, value }) => (
-  <div className="bg-white/70 backdrop-blur-sm border border-orange-100/50 rounded-lg p-3">
+  <div className="bg-card/95 backdrop-blur-sm border border-border-subtle rounded-lg p-3">
     <div className="flex items-center gap-3">
-      <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+      <div className="w-9 h-9 rounded-lg bg-brand/10 flex items-center justify-center flex-shrink-0 text-brand">
         {icon}
       </div>
       <div>
-        <div className="text-xl font-semibold text-stone-800">{value}</div>
-        <div className="text-xs text-stone-500">{label}</div>
+        <div className="text-xl font-semibold text-text-primary">{value}</div>
+        <div className="text-xs text-text-secondary">{label}</div>
       </div>
     </div>
   </div>
@@ -483,9 +483,9 @@ const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({
   title,
   children
 }) => (
-  <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-sm border border-orange-100/60 p-4">
+  <div className="bg-surface/95 backdrop-blur-sm rounded-2xl shadow-sm border border-border-subtle p-4">
     <div className="flex items-center justify-between mb-3">
-      <h2 className="text-sm font-semibold text-stone-800">{title}</h2>
+      <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
     </div>
     <div>{children}</div>
   </div>
@@ -495,14 +495,14 @@ const SimpleTable: React.FC<{
   headers: string[];
   rows: (string | number | React.ReactNode)[][];
 }> = ({ headers, rows }) => (
-  <div className="border border-stone-200 rounded-xl overflow-hidden bg-white">
+  <div className="border border-border-subtle rounded-xl overflow-hidden bg-surface">
     <table className="min-w-full text-sm">
-      <thead className="bg-amber-50">
+      <thead className="bg-card/80">
         <tr>
           {headers.map((h) => (
             <th
               key={h}
-              className="px-3 py-2 text-left text-xs font-semibold text-stone-600"
+              className="px-3 py-2 text-left text-xs font-semibold text-text-secondary"
             >
               {h}
             </th>
@@ -513,10 +513,10 @@ const SimpleTable: React.FC<{
         {rows.map((row, i) => (
           <tr
             key={i}
-            className={i % 2 === 0 ? "bg-white" : "bg-stone-50/80"}
+            className={i % 2 === 0 ? "bg-card" : "bg-surface"}
           >
             {row.map((cell, j) => (
-              <td key={j} className="px-3 py-2 text-xs text-stone-700">
+              <td key={j} className="px-3 py-2 text-xs text-text-secondary">
                 {cell}
               </td>
             ))}
@@ -533,11 +533,11 @@ const TasksTable: React.FC<{
   onStatusChange: (t: TaskResponse, s: TaskResponse["status"]) => void;
   onProgressChange: (t: TaskResponse, pct: number) => void;
 }> = ({ tasks, onClaim, onStatusChange, onProgressChange }) => (
-  <div className="border border-stone-200 rounded-xl overflow-hidden bg-white">
+  <div className="border border-border-subtle rounded-xl overflow-hidden bg-surface">
     <table className="min-w-full text-xs">
-      <thead className="bg-amber-50">
+      <thead className="bg-card/80">
         <tr>
-          <th className="px-2 py-2 text-left font-semibold text-stone-600">
+          <th className="px-2 py-2 text-left font-semibold text-text-secondary">
             Title
           </th>
           <th className="px-2 py-2 text-left font-semibold text-stone-600">
@@ -558,11 +558,11 @@ const TasksTable: React.FC<{
         {tasks.map((t, i) => (
           <tr
             key={t.id}
-            className={i % 2 === 0 ? "bg-white" : "bg-stone-50/80"}
+            className={i % 2 === 0 ? "bg-card" : "bg-surface"}
           >
-            <td className="px-2 py-2">{t.title}</td>
-            <td className="px-2 py-2 capitalize">{t.status}</td>
-            <td className="px-2 py-2 capitalize">{t.priority}</td>
+            <td className="px-2 py-2 text-text-primary">{t.title}</td>
+            <td className="px-2 py-2 capitalize text-text-secondary">{t.status}</td>
+            <td className="px-2 py-2 capitalize text-text-secondary">{t.priority}</td>
             <td className="px-2 py-2">
               <input
                 type="range"
@@ -573,7 +573,7 @@ const TasksTable: React.FC<{
                   onProgressChange(t, Number.parseInt(e.target.value, 10))
                 }
               />
-              <span className="ml-2">
+              <span className="ml-2 text-text-secondary">
                 {t.completion_percentage ?? 0}
                 %
               </span>
@@ -582,7 +582,7 @@ const TasksTable: React.FC<{
               <div className="flex flex-wrap gap-1">
                 <button
                   onClick={() => onClaim(t)}
-                  className="px-2 py-1 border border-amber-300 rounded-md text-[10px] text-amber-800 hover:bg-amber-50"
+                  className="px-2 py-1 border border-brand/40 rounded-md text-[10px] text-brand hover:bg-brand/10"
                 >
                   Claim
                 </button>
@@ -592,8 +592,8 @@ const TasksTable: React.FC<{
                     onClick={() => onStatusChange(t, s as TaskResponse["status"])}
                     className={`px-2 py-1 rounded-md text-[10px] border ${
                       t.status === s
-                        ? "bg-amber-600 text-white border-amber-700"
-                        : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                        ? "bg-brand text-white border-brand"
+                        : "border-border-subtle text-text-secondary hover:bg-surface"
                     }`}
                   >
                     {s}
@@ -609,11 +609,11 @@ const TasksTable: React.FC<{
 );
 
 const TimelineTable: React.FC<{ tasks: TimelineTask[] }> = ({ tasks }) => (
-  <div className="border border-stone-200 rounded-xl overflow-hidden bg-white max-h-96 overflow-y-auto">
+  <div className="border border-border-subtle rounded-xl overflow-hidden bg-surface max-h-96 overflow-y-auto">
     <table className="min-w-full text-xs">
-      <thead className="bg-amber-50">
+      <thead className="bg-card/80">
         <tr>
-          <th className="px-2 py-2 text-left font-semibold text-stone-600">
+          <th className="px-2 py-2 text-left font-semibold text-text-secondary">
             Title
           </th>
           <th className="px-2 py-2 text-left font-semibold text-stone-600">
@@ -634,9 +634,9 @@ const TimelineTable: React.FC<{ tasks: TimelineTask[] }> = ({ tasks }) => (
         {tasks.map((t, i) => (
           <tr
             key={t.id}
-            className={i % 2 === 0 ? "bg-white" : "bg-stone-50/80"}
+            className={i % 2 === 0 ? "bg-card" : "bg-surface"}
           >
-            <td className="px-2 py-2">{t.title}</td>
+            <td className="px-2 py-2 text-text-primary">{t.title}</td>
             <td className="px-2 py-2">
               {t.expected_start_date ?? "—"} →{" "}
               {t.expected_end_date ?? "—"}
@@ -646,7 +646,7 @@ const TimelineTable: React.FC<{ tasks: TimelineTask[] }> = ({ tasks }) => (
             </td>
             <td className="px-2 py-2">
               {t.is_delayed ? (
-                <span className="text-red-600 font-semibold">Yes</span>
+              <span className="text-red-500 font-semibold">Yes</span>
               ) : (
                 "No"
               )}
@@ -665,25 +665,27 @@ const DependencyGraphView: React.FC<{
 }> = ({ nodes, edges }) => (
   <div className="grid grid-cols-2 gap-4">
     <div>
-      <h3 className="text-xs font-semibold text-stone-600 mb-2">
+      <h3 className="text-xs font-semibold text-text-secondary mb-2">
         Nodes
       </h3>
-      <div className="border border-stone-200 rounded-xl bg-white max-h-80 overflow-y-auto">
+      <div className="border border-border-subtle rounded-xl bg-surface max-h-80 overflow-y-auto">
         <table className="min-w-full text-xs">
-          <thead className="bg-amber-50">
+      <thead className="bg-card/80">
             <tr>
-              <th className="px-2 py-2 text-left">Task</th>
-              <th className="px-2 py-2 text-left">Status</th>
+              <th className="px-2 py-2 text-left text-text-secondary">Task</th>
+              <th className="px-2 py-2 text-left text-text-secondary">Status</th>
             </tr>
           </thead>
           <tbody>
             {nodes.map((n, i) => (
               <tr
                 key={n.task_id}
-                className={i % 2 === 0 ? "bg-white" : "bg-stone-50/80"}
+                className={i % 2 === 0 ? "bg-card" : "bg-surface"}
               >
-                <td className="px-2 py-1.5">{n.title}</td>
-                <td className="px-2 py-1.5 capitalize">{n.status}</td>
+                <td className="px-2 py-1.5 text-text-primary">{n.title}</td>
+                <td className="px-2 py-1.5 capitalize text-text-secondary">
+                  {n.status}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -691,27 +693,31 @@ const DependencyGraphView: React.FC<{
       </div>
     </div>
     <div>
-      <h3 className="text-xs font-semibold text-stone-600 mb-2">
+      <h3 className="text-xs font-semibold text-text-secondary mb-2">
         Edges
       </h3>
-      <div className="border border-stone-200 rounded-xl bg-white max-h-80 overflow-y-auto">
+      <div className="border border-border-subtle rounded-xl bg-surface max-h-80 overflow-y-auto">
         <table className="min-w-full text-xs">
-          <thead className="bg-amber-50">
+      <thead className="bg-card/80">
             <tr>
-              <th className="px-2 py-2 text-left">From</th>
-              <th className="px-2 py-2 text-left">To</th>
-              <th className="px-2 py-2 text-left">Type</th>
+              <th className="px-2 py-2 text-left text-text-secondary">From</th>
+              <th className="px-2 py-2 text-left text-text-secondary">To</th>
+              <th className="px-2 py-2 text-left text-text-secondary">Type</th>
             </tr>
           </thead>
           <tbody>
             {edges.map((e, i) => (
               <tr
                 key={`${e.from_task_id}-${e.to_task_id}-${i}`}
-                className={i % 2 === 0 ? "bg-white" : "bg-stone-50/80"}
+                className={i % 2 === 0 ? "bg-card" : "bg-surface"}
               >
-                <td className="px-2 py-1.5">{e.from_task_id}</td>
-                <td className="px-2 py-1.5">{e.to_task_id}</td>
-                <td className="px-2 py-1.5">{e.type}</td>
+                <td className="px-2 py-1.5 text-text-primary">
+                  {e.from_task_id}
+                </td>
+                <td className="px-2 py-1.5 text-text-primary">
+                  {e.to_task_id}
+                </td>
+                <td className="px-2 py-1.5 text-text-secondary">{e.type}</td>
               </tr>
             ))}
           </tbody>

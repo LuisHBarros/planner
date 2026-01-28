@@ -2,7 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gradient-to-br from-stone-50 via-amber-50 to-orange-50 text-stone-900;
+:root {
+  /* Light theme tokens */
+  --bg-app: #ffffff;
+  --bg-surface: #f8f8f9;
+  --bg-card: #ffffff;
+  --border-subtle: #e4e4e7;
+  --text-primary: #09090b;
+  --text-secondary: #71717a;
+  --brand: #7c3aed;
+}
+
+.dark {
+  /* Dark theme tokens */
+  --bg-app: #09090b;
+  --bg-surface: #121215;
+  --bg-card: #18181b;
+  --border-subtle: #27272a;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --brand: #8b5cf6;
+}
+
+@layer base {
+  * {
+    @apply border-border-subtle;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-text-primary antialiased;
+  }
+}
+
+@layer utilities {
+  /* Reusable focus styles for keyboard navigation */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2;
+  }
+
+  .focus-ring-inset {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand;
+  }
+
+  /* Pointer utilities for draggable cards/columns */
+  .cursor-grab {
+    cursor: grab;
+  }
+
+  .cursor-grabbing {
+    cursor: grabbing;
+  }
+}
+
+@layer components {
+  .board-column {
+    @apply rounded-lg border border-border-subtle bg-surface p-md;
+  }
+
+  .task-card {
+    @apply rounded-lg border border-border-subtle bg-card text-text-primary shadow-sm transition-shadow;
+  }
 }
 

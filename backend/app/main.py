@@ -1,4 +1,6 @@
 """FastAPI application factory and startup wiring."""
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -22,12 +24,35 @@ from app.api.routes import companies, teams, roles, projects, tasks, invites, me
 from app.api.exceptions import setup_exception_handlers
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: initialize and tear down infrastructure components."""
+    # Create a short-lived session just for wiring repositories into handlers
+    db: Session = next(get_db())
+    task_repo = SqlAlchemyTaskRepository(db)
+    dep_repo = SqlAlchemyTaskDependencyRepository(db)
+
+    # Initialize event bus and register handlers
+    event_bus = InMemoryEventBus()
+    dependency_handler = DependencyHandler(event_bus, task_repo, dep_repo)
+    dependency_handler.register()
+
+    app.state.event_bus = event_bus
+    app.state.translation_service = TranslationService()
+
+    try:
+        yield
+    finally:
+        db.close()
+
+
 def create_app() -> FastAPI:
     """Create and configure FastAPI application."""
     app = FastAPI(
         title=settings.api_title,
         version=settings.api_version,
         debug=settings.debug,
+        lifespan=lifespan,
     )
 
     # CORS middleware
@@ -45,22 +70,6 @@ def create_app() -> FastAPI:
     # Initialize database tables (for development)
     if settings.env == "development":
         Base.metadata.create_all(bind=engine)
-
-    # Initialize services on startup
-    @app.on_event("startup")
-    async def on_startup() -> None:  # pragma: no cover - side-effect wiring
-        # Create a short-lived session just for wiring repositories into handlers
-        db: Session = next(get_db())
-        task_repo = SqlAlchemyTaskRepository(db)
-        dep_repo = SqlAlchemyTaskDependencyRepository(db)
-
-        # Initialize event bus and register handlers
-        event_bus = InMemoryEventBus()
-        dependency_handler = DependencyHandler(event_bus, task_repo, dep_repo)
-        dependency_handler.register()
-
-        app.state.event_bus = event_bus
-        app.state.translation_service = TranslationService()
 
     # Include routers
     app.include_router(companies.router, prefix="/api/companies", tags=["companies"])

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+
 from sqlalchemy.orm import Session
 
 from app.infrastructure.database import get_db
@@ -16,6 +17,7 @@ from app.infrastructure.persistence.repositories import (
     SqlAlchemyNoteRepository,
     SqlAlchemyTaskDependencyRepository,
 )
+from app.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 try:
     from app.infrastructure.persistence.repositories import (
         SqlAlchemyTeamMemberRepository,
@@ -23,6 +25,7 @@ try:
 except ImportError:
     SqlAlchemyTeamMemberRepository = None  # type: ignore
 from app.application.use_cases.create_task import CreateTaskUseCase
+from app.application.use_cases.dtos import CreateTaskInputDTO
 from app.application.use_cases.claim_task import ClaimTaskUseCase
 from app.application.use_cases.update_task_status import UpdateTaskStatusUseCase
 from app.application.use_cases.add_task_note import AddTaskNoteUseCase
@@ -241,7 +244,6 @@ async def list_tasks(
 async def create_task(
     request: CreateTaskRequest,
     fastapi_request: Request,
-    db: Session = Depends(get_db),
 ):
     """
     Create a new task (UC-005).
@@ -250,33 +252,30 @@ async def create_task(
     The rank_index is automatically calculated to place the task
     at the end of the project's task list.
     """
-    task_repo = SqlAlchemyTaskRepository(db)
-    project_repo = SqlAlchemyProjectRepository(db)
-    role_repo = SqlAlchemyRoleRepository(db)
-    note_repo = SqlAlchemyNoteRepository(db)
-    
     # Get event bus from app state
     event_bus = fastapi_request.app.state.event_bus
-    
-    use_case = CreateTaskUseCase(
-        task_repository=task_repo,
-        project_repository=project_repo,
-        role_repository=role_repo,
-        note_repository=note_repo,
-        event_bus=event_bus,
-    )
-    
-    task = use_case.execute(
+
+    # Instantiate Unit of Work (manages its own SQLAlchemy session)
+    uow = SqlAlchemyUnitOfWork()
+
+    # Convert request model (Pydantic) to input DTO
+    input_dto = CreateTaskInputDTO(
         project_id=request.project_id,
         title=request.title,
         description=request.description,
         role_responsible_id=request.role_responsible_id,
         priority=request.priority,
         due_date=request.due_date,
+        created_by=None,  # In futuro, vindo do contexto autenticado
     )
-    
-    db.commit()
-    
+
+    use_case = CreateTaskUseCase(
+        uow=uow,
+        event_bus=event_bus,
+    )
+
+    task = use_case.execute(input_dto)
+
     return _task_to_response(task)
 
 
