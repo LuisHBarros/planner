@@ -88,6 +88,25 @@ class SqlAlchemyCompanyRepository(CompanyRepository):
             updated_at=model.updated_at,
         )
 
+    def find_all(self) -> List[Company]:
+        """Find all companies (for MVP, no pagination)."""
+        models = self.session.query(CompanyModel).all()
+        return [
+            Company(
+                id=m.id,
+                name=m.name,
+                slug=m.slug,
+                plan=m.plan,
+                billing_email=m.billing_email,
+                ai_enabled=m.ai_enabled,
+                ai_provider=m.ai_provider,
+                ai_api_key=m.ai_api_key,
+                created_at=m.created_at,
+                updated_at=m.updated_at,
+            )
+            for m in models
+        ]
+
 
 class SqlAlchemyTeamRepository(TeamRepository):
     """SQLAlchemy implementation of TeamRepository."""
@@ -122,6 +141,21 @@ class SqlAlchemyTeamRepository(TeamRepository):
             .filter(TeamModel.company_id == company_id)
             .all()
         )
+        return [
+            Team(
+                id=m.id,
+                company_id=m.company_id,
+                name=m.name,
+                description=m.description,
+                default_language=m.default_language,
+                created_at=m.created_at,
+            )
+            for m in models
+        ]
+
+    def find_all(self) -> List[Team]:
+        """Find all teams (for MVP, no pagination)."""
+        models = self.session.query(TeamModel).all()
         return [
             Team(
                 id=m.id,
@@ -247,6 +281,22 @@ class SqlAlchemyRoleRepository(RoleRepository):
         # MVP: we don't model assignments, so return all roles for team.
         return self.find_by_team_id(team_id)
 
+    def find_all(self) -> List[Role]:
+        """Find all roles (for MVP, no pagination)."""
+        models = self.session.query(RoleModel).all()
+        return [
+            Role(
+                id=m.id,
+                team_id=m.team_id,
+                name=m.name,
+                level=m.level,
+                base_capacity=m.base_capacity,
+                description=m.description,
+                created_at=m.created_at,
+            )
+            for m in models
+        ]
+
 
 class SqlAlchemyProjectRepository(ProjectRepository):
     """SQLAlchemy implementation of ProjectRepository."""
@@ -281,6 +331,21 @@ class SqlAlchemyProjectRepository(ProjectRepository):
             .filter(ProjectModel.team_id == team_id)
             .all()
         )
+        return [
+            Project(
+                id=m.id,
+                team_id=m.team_id,
+                name=m.name,
+                description=m.description,
+                status=m.status,
+                created_at=m.created_at,
+            )
+            for m in models
+        ]
+
+    def find_all(self) -> List[Project]:
+        """Find all projects (for MVP, no pagination)."""
+        models = self.session.query(ProjectModel).all()
         return [
             Project(
                 id=m.id,
