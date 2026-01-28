@@ -58,3 +58,29 @@ class CompletionSource(str, Enum):
     """Task completion percentage source."""
     MANUAL = "manual"
     AI = "ai"
+
+
+class ScheduleChangeReason(str, Enum):
+    """Reason for a schedule change in ScheduleHistory."""
+
+    DEPENDENCY_DELAY = "dependency_delay"
+    MANUAL_OVERRIDE = "manual_override"
+    SCOPE_CHANGE = "scope_change"
+    ESTIMATION_ERROR = "estimation_error"
+
+
+class TeamMemberRole(str, Enum):
+    """Role of a user within a team (Spec 3.0)."""
+
+    MANAGER = "manager"
+    BACKEND = "backend"
+    MEMBER = "member"
+
+
+class ScheduleChangeReason(str, Enum):
+    """Reason for a schedule change in ScheduleHistory."""
+
+    DEPENDENCY_DELAY = "dependency_delay"
+    MANUAL_OVERRIDE = "manual_override"
+    SCOPE_CHANGE = "scope_change"
+    ESTIMATION_ERROR = "estimation_error"

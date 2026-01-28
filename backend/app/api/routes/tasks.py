@@ -16,11 +16,18 @@ from app.infrastructure.persistence.repositories import (
     SqlAlchemyNoteRepository,
     SqlAlchemyTaskDependencyRepository,
 )
+try:
+    from app.infrastructure.persistence.repositories import (
+        SqlAlchemyTeamMemberRepository,
+    )
+except ImportError:
+    SqlAlchemyTeamMemberRepository = None  # type: ignore
 from app.application.use_cases.create_task import CreateTaskUseCase
 from app.application.use_cases.claim_task import ClaimTaskUseCase
 from app.application.use_cases.update_task_status import UpdateTaskStatusUseCase
 from app.application.use_cases.add_task_note import AddTaskNoteUseCase
 from app.application.use_cases.add_task_dependency import AddTaskDependencyUseCase
+from app.application.use_cases.remove_task_dependency import RemoveTaskDependencyUseCase
 from app.application.use_cases.update_task_progress_manual import UpdateTaskProgressManualUseCase
 from app.domain.models.task import Task
 from app.domain.models.note import Note
@@ -32,6 +39,7 @@ from app.domain.models.enums import (
     DependencyType,
     NoteType,
 )
+from app.domain.exceptions import BusinessRuleViolation
 
 router = APIRouter()
 
@@ -50,12 +58,18 @@ class CreateTaskRequest(BaseModel):
 class ClaimTaskRequest(BaseModel):
     """Request model for claiming a task."""
     user_id: UUID
+    # Note: user_id is a temporary MVP mechanism.
+    # In production, this value MUST come from the authenticated request context
+    # (JWT/session) and not from client input.
 
 
 class UpdateStatusRequest(BaseModel):
     """Request model for updating task status."""
     status: TaskStatus
     user_id: Optional[UUID] = None
+    # Note: user_id is a temporary MVP mechanism.
+    # In production, this value MUST come from the authenticated request context
+    # (JWT/session) and not from client input.
 
 
 class AddNoteRequest(BaseModel):
@@ -74,6 +88,9 @@ class UpdateProgressRequest(BaseModel):
     """Request model for updating progress."""
     completion_percentage: int = Field(ge=0, le=100)
     user_id: UUID
+    # Note: user_id is a temporary MVP mechanism.
+    # In production, this value MUST come from the authenticated request context
+    # (JWT/session) and not from client input.
 
 
 class TaskResponse(BaseModel):
@@ -293,6 +310,9 @@ async def claim_task(
     
     Assigns the task to a user and changes status from 'todo' to 'doing'.
     The user must have the role that the task is assigned to.
+    
+    Note: user_id is a temporary MVP mechanism. In production, this value
+    MUST come from the authenticated request context (JWT/session), not from client input.
     """
     task_repo = SqlAlchemyTaskRepository(db)
     user_repo = SqlAlchemyUserRepository(db)
@@ -338,6 +358,9 @@ async def update_task_status(
     - doing → done, blocked
     - blocked → todo
     - done → (terminal, cannot change)
+    
+    Note: user_id is a temporary MVP mechanism. In production, this value
+    MUST come from the authenticated request context (JWT/session), not from client input.
     """
     task_repo = SqlAlchemyTaskRepository(db)
     note_repo = SqlAlchemyNoteRepository(db)
@@ -480,6 +503,62 @@ async def list_task_dependencies(
     )
 
 
+@router.delete("/{task_id}/dependencies/{dependency_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_task_dependency(
+    task_id: UUID,
+    dependency_id: UUID,
+    request: Request,
+    actor_user_id: Optional[UUID] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Remove a dependency between tasks.
+    
+    If the removed dependency was of type BLOCKS and no remaining blocking
+    dependencies exist, the task will be automatically unblocked (status changes
+    from blocked → todo). Status will not change if task is already doing or done.
+    
+    Only team managers can remove dependencies. In MVP, actor_user_id is optional
+    and permission check is skipped if not provided.
+    
+    Note: actor_user_id is a temporary MVP mechanism. In production, this value
+    MUST come from the authenticated request context (JWT/session), not from client input.
+    """
+    task_repo = SqlAlchemyTaskRepository(db)
+    dep_repo = SqlAlchemyTaskDependencyRepository(db)
+    project_repo = SqlAlchemyProjectRepository(db)
+    note_repo = SqlAlchemyNoteRepository(db)
+    
+    event_bus = request.app.state.event_bus
+    
+    team_member_repo = None
+    if SqlAlchemyTeamMemberRepository:
+        team_member_repo = SqlAlchemyTeamMemberRepository(db)
+    
+    use_case = RemoveTaskDependencyUseCase(
+        task_repository=task_repo,
+        task_dependency_repository=dep_repo,
+        project_repository=project_repo,
+        note_repository=note_repo,
+        team_member_repository=team_member_repo,
+        event_bus=event_bus,
+    )
+    
+    try:
+        use_case.execute(
+            task_id=task_id,
+            dependency_id=dependency_id,
+            actor_user_id=actor_user_id,
+        )
+    except BusinessRuleViolation as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.message,
+        ) from exc
+    
+    db.commit()
+
+
 @router.patch("/{task_id}/progress", response_model=TaskResponse)
 async def update_task_progress(
     task_id: UUID,
@@ -491,6 +570,9 @@ async def update_task_progress(
     Update task progress manually (UC-023).
     
     Sets the completion percentage (0-100) and marks it as manually set.
+    
+    Note: user_id is a temporary MVP mechanism. In production, this value
+    MUST come from the authenticated request context (JWT/session), not from client input.
     """
     task_repo = SqlAlchemyTaskRepository(db)
     note_repo = SqlAlchemyNoteRepository(db)

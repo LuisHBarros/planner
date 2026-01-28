@@ -19,6 +19,20 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def init_db() -> None:
+    """
+    Initialize database schema.
+
+    Imports the persistence models so that SQLAlchemy is aware of all mapped
+    tables, then creates them if they do not exist yet. This is primarily
+    used by local tooling like `app.seed_demo`.
+    """
+    # Import models for side effects so they register with Base.metadata
+    from app.infrastructure.persistence import models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+
+
 def get_db():
     """Dependency for FastAPI to get database session."""
     db = SessionLocal()

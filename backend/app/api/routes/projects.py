@@ -1,4 +1,5 @@
 """Project endpoints."""
+from datetime import datetime, UTC
 from typing import Optional, List
 from uuid import UUID
 
@@ -11,12 +12,19 @@ from app.infrastructure.persistence.repositories import (
     SqlAlchemyProjectRepository,
     SqlAlchemyTeamRepository,
     SqlAlchemyTaskRepository,
+    SqlAlchemyTaskDependencyRepository,
 )
 from app.application.use_cases.create_project import CreateProjectUseCase
 from app.application.use_cases.rank_tasks import RankTasksUseCase
 from app.domain.models.project import Project
 from app.domain.models.task import Task
-from app.domain.models.enums import ProjectStatus, TaskStatus, TaskPriority, CompletionSource
+from app.domain.models.enums import (
+    ProjectStatus,
+    TaskStatus,
+    TaskPriority,
+    CompletionSource,
+    DependencyType,
+)
 
 router = APIRouter()
 
@@ -216,24 +224,254 @@ async def rank_tasks(
     
     Reorders tasks based on the provided list of task IDs.
     The order of task_ids defines the new ranking.
+    
+    Only team managers can rank tasks. In MVP, actor_user_id is optional
+    and permission check is skipped if not provided.
+    
+    Note: actor_user_id is a temporary MVP mechanism. In production, this value
+    MUST come from the authenticated request context (JWT/session), not from client input.
     """
     task_repo = SqlAlchemyTaskRepository(db)
+    project_repo = SqlAlchemyProjectRepository(db)
     
     # Get event bus from app state
     event_bus = fastapi_request.app.state.event_bus
     
+    team_member_repo = None
+    try:
+        from app.infrastructure.persistence.repositories import (
+            SqlAlchemyTeamMemberRepository,
+        )
+        team_member_repo = SqlAlchemyTeamMemberRepository(db)
+    except ImportError:
+        pass
+    
     use_case = RankTasksUseCase(
         task_repository=task_repo,
+        project_repository=project_repo,
         event_bus=event_bus,
+        team_member_repository=team_member_repo,
     )
+    
+    # In MVP, accept actor_user_id from query param (optional)
+    actor_user_id = None  # Would come from auth context in production
     
     tasks = use_case.execute(
         project_id=project_id,
         task_ids=request.task_ids,
+        actor_user_id=actor_user_id,
     )
     
     db.commit()
     
     return TaskListResponse(
         tasks=[_task_to_response(t) for t in tasks]
+    )
+
+
+class DependencyGraphNode(BaseModel):
+    """Node in dependency graph."""
+    task_id: str
+    title: str
+    status: TaskStatus
+    expected_start_date: Optional[str] = None
+    expected_end_date: Optional[str] = None
+    is_delayed: bool = False
+
+
+class DependencyGraphEdge(BaseModel):
+    """Edge in dependency graph."""
+    from_task_id: str
+    to_task_id: str
+    type: str
+
+
+class DependencyGraphResponse(BaseModel):
+    """Response model for project dependency graph."""
+    nodes: List[DependencyGraphNode]
+    edges: List[DependencyGraphEdge]
+
+
+class TimelineTask(BaseModel):
+    """Task in timeline view."""
+    id: str
+    title: str
+    expected_start_date: Optional[str] = None
+    expected_end_date: Optional[str] = None
+    actual_start_date: Optional[str] = None
+    actual_end_date: Optional[str] = None
+    is_delayed: bool
+    blocking_dependencies: int
+    blocked_by: List[str]
+
+
+class TimelineResponse(BaseModel):
+    """Response model for project timeline."""
+    project_id: str
+    tasks: List[TimelineTask]
+
+
+@router.get("/{project_id}/dependency-graph", response_model=DependencyGraphResponse)
+async def get_project_dependency_graph(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Get dependency graph for a project (read-only).
+    
+    Returns nodes (tasks) and edges (dependencies) for UI visualization
+    (timeline, Gantt, DAG view). This is a read model and does not change domain state.
+    """
+    project_repo = SqlAlchemyProjectRepository(db)
+    task_repo = SqlAlchemyTaskRepository(db)
+    dep_repo = SqlAlchemyTaskDependencyRepository(db)
+    
+    # Verify project exists
+    project = project_repo.find_by_id(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project with id {project_id} not found",
+        )
+    
+    # Load all tasks in project
+    tasks = task_repo.find_by_project_id(project_id)
+    task_ids = {t.id for t in tasks}
+    
+    # Build nodes
+    nodes = []
+    for task in tasks:
+        # Handle optional scheduling fields (Spec 2.0)
+        expected_start = None
+        expected_end = None
+        is_delayed = False
+        
+        if hasattr(task, "expected_start_date") and task.expected_start_date:
+            expected_start = task.expected_start_date.isoformat()
+        if hasattr(task, "expected_end_date") and task.expected_end_date:
+            expected_end = task.expected_end_date.isoformat()
+        if hasattr(task, "is_delayed"):
+            is_delayed = task.is_delayed
+        
+        nodes.append(
+            DependencyGraphNode(
+                task_id=str(task.id),
+                title=task.title,
+                status=task.status,
+                expected_start_date=expected_start,
+                expected_end_date=expected_end,
+                is_delayed=is_delayed,
+            )
+        )
+    
+    # Build edges (dependencies where both tasks are in project)
+    edges = []
+    for task in tasks:
+        deps = dep_repo.find_by_task_id(task.id)
+        for dep in deps:
+            # Only include edges where both tasks are in this project
+            if dep.depends_on_task_id in task_ids:
+                edges.append(
+                    DependencyGraphEdge(
+                        from_task_id=str(dep.depends_on_task_id),
+                        to_task_id=str(dep.task_id),
+                        type=dep.dependency_type.value,
+                    )
+                )
+    
+    return DependencyGraphResponse(nodes=nodes, edges=edges)
+
+
+@router.get("/{project_id}/timeline", response_model=TimelineResponse)
+async def get_project_timeline(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Get timeline summary for a project (derived view).
+    
+    Provides a timeline-friendly dataset for frontend planning views.
+    This is a computed projection, not persisted data.
+    """
+    project_repo = SqlAlchemyProjectRepository(db)
+    task_repo = SqlAlchemyTaskRepository(db)
+    dep_repo = SqlAlchemyTaskDependencyRepository(db)
+    
+    # Verify project exists
+    project = project_repo.find_by_id(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project with id {project_id} not found",
+        )
+    
+    # Load all tasks in project
+    tasks = task_repo.find_by_project_id(project_id)
+    
+    # Build timeline tasks with computed fields
+    timeline_tasks = []
+    now = datetime.now(UTC)
+    
+    for task in tasks:
+        # Extract scheduling fields (optional, Spec 2.0)
+        expected_start = None
+        expected_end = None
+        actual_start = None
+        actual_end = None
+        
+        if hasattr(task, "expected_start_date") and task.expected_start_date:
+            expected_start = task.expected_start_date.isoformat()
+        if hasattr(task, "expected_end_date") and task.expected_end_date:
+            expected_end = task.expected_end_date.isoformat()
+        if hasattr(task, "actual_start_date") and task.actual_start_date:
+            actual_start = task.actual_start_date.isoformat()
+        if hasattr(task, "actual_end_date") and task.actual_end_date:
+            actual_end = task.actual_end_date.isoformat()
+        
+        # Compute is_delayed: now > expected_end_date AND status != done
+        is_delayed = False
+        if expected_end:
+            try:
+                expected_end_dt = datetime.fromisoformat(expected_end.replace("Z", "+00:00"))
+                if now > expected_end_dt and task.status != TaskStatus.DONE:
+                    is_delayed = True
+            except (ValueError, AttributeError):
+                pass
+        elif hasattr(task, "is_delayed"):
+            is_delayed = task.is_delayed
+        
+        # Count blocking dependencies not completed
+        blocking_deps = dep_repo.find_by_task_id(task.id)
+        blocking_deps = [
+            d
+            for d in blocking_deps
+            if d.dependency_type == DependencyType.BLOCKS
+        ]
+        
+        blocking_dependencies = 0
+        blocked_by = []
+        
+        for dep in blocking_deps:
+            blocker_task = task_repo.find_by_id(dep.depends_on_task_id)
+            if blocker_task and blocker_task.status != TaskStatus.DONE:
+                blocking_dependencies += 1
+                blocked_by.append(str(dep.depends_on_task_id))
+        
+        timeline_tasks.append(
+            TimelineTask(
+                id=str(task.id),
+                title=task.title,
+                expected_start_date=expected_start,
+                expected_end_date=expected_end,
+                actual_start_date=actual_start,
+                actual_end_date=actual_end,
+                is_delayed=is_delayed,
+                blocking_dependencies=blocking_dependencies,
+                blocked_by=blocked_by,
+            )
+        )
+    
+    return TimelineResponse(
+        project_id=str(project_id),
+        tasks=timeline_tasks,
     )

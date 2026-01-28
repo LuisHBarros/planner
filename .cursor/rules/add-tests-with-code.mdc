@@ -1,0 +1,30 @@
+---
+description: Whenever you add code to the system, add tests for it too
+alwaysApply: true
+---
+
+# Add Tests With Code
+
+Whenever you add or change code in this project, add or update tests in the same change.
+
+## What to do
+
+- **New feature or use case**: Add unit tests that cover the main flow and edge cases (e.g. validation errors, not-found).
+- **New domain entity or service**: Add tests for creation, invariants, and key methods.
+- **New API endpoint**: Add unit tests for the use case it calls; add integration or e2e tests for the route if appropriate.
+- **Bug fix**: Add a test that would have caught the bug, then fix the code.
+
+## Where tests live
+
+- **Backend**: `backend/tests/unit/` for domain and use-case tests; `backend/tests/integration/` and `backend/tests/e2e/` for adapters and full flows.
+- **Frontend**: Use the project’s test setup (e.g. Jest/Vitest); colocate or mirror structure under a `tests/` or `__tests__` directory.
+
+## Example
+
+Adding a new use case `DoSomethingUseCase`:
+
+1. Implement the use case in `app/application/use_cases/do_something.py`.
+2. Add `backend/tests/unit/test_do_something.py` with tests for success, validation failures, and not-found cases.
+3. Run the test suite and fix any failures.
+
+Do not merge or ship code that adds behavior without corresponding tests.

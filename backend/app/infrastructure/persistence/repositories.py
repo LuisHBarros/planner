@@ -12,6 +12,8 @@ from app.domain.models.project import Project
 from app.domain.models.task import Task
 from app.domain.models.task_dependency import TaskDependency
 from app.domain.models.note import Note
+from app.domain.models.team_member import TeamMember
+from app.domain.models.team_invite import TeamInvite
 from app.domain.models.enums import TaskStatus
 from app.application.ports.company_repository import CompanyRepository
 from app.application.ports.team_repository import TeamRepository
@@ -21,6 +23,8 @@ from app.application.ports.project_repository import ProjectRepository
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.task_dependency_repository import TaskDependencyRepository
 from app.application.ports.note_repository import NoteRepository
+from app.application.ports.team_member_repository import TeamMemberRepository
+from app.application.ports.team_invite_repository import TeamInviteRepository
 from app.infrastructure.persistence.models import (
     CompanyModel,
     TeamModel,
@@ -30,6 +34,8 @@ from app.infrastructure.persistence.models import (
     TaskModel,
     TaskDependencyModel,
     NoteModel,
+    TeamMemberModel,
+    TeamInviteModel,
 )
 
 
@@ -107,6 +113,11 @@ class SqlAlchemyCompanyRepository(CompanyRepository):
             for m in models
         ]
 
+    # Convenience alias used by seed scripts
+    def add(self, company: Company) -> None:
+        """Add a new company (alias for save)."""
+        self.save(company)
+
 
 class SqlAlchemyTeamRepository(TeamRepository):
     """SQLAlchemy implementation of TeamRepository."""
@@ -168,6 +179,28 @@ class SqlAlchemyTeamRepository(TeamRepository):
             for m in models
         ]
 
+    # Convenience helpers for seed scripts
+    def add(self, team: Team) -> None:
+        """Add a new team (alias for save)."""
+        self.save(team)
+
+    def find_by_name_and_company(self, name: str, company_id: UUID) -> Optional[Team]:
+        model = (
+            self.session.query(TeamModel)
+            .filter(TeamModel.company_id == company_id, TeamModel.name == name)
+            .one_or_none()
+        )
+        if not model:
+            return None
+        return Team(
+            id=model.id,
+            company_id=model.company_id,
+            name=model.name,
+            description=model.description,
+            default_language=model.default_language,
+            created_at=model.created_at,
+        )
+
 
 class SqlAlchemyUserRepository(UserRepository):
     """SQLAlchemy implementation of UserRepository."""
@@ -214,7 +247,7 @@ class SqlAlchemyUserRepository(UserRepository):
         )
 
     def find_by_team_id(self, team_id: UUID) -> List[User]:
-        # For MVP we don't model team membership explicitly; return all users.
+        # For MVP and seeding, just return all users (no membership table yet)
         models = self.session.query(UserModel).all()
         return [
             User(
@@ -224,6 +257,62 @@ class SqlAlchemyUserRepository(UserRepository):
                 preferred_language=m.preferred_language,
                 avatar_url=m.avatar_url,
                 created_at=m.created_at,
+            )
+            for m in models
+        ]
+
+    # Convenience alias used by seed scripts
+    def add(self, user: User) -> None:
+        """Add a new user (alias for save)."""
+        self.save(user)
+
+
+class SqlAlchemyTeamMemberRepository(TeamMemberRepository):
+    """SQLAlchemy implementation of TeamMemberRepository."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def save(self, member: TeamMember) -> None:
+        model = self.session.get(TeamMemberModel, member.id) or TeamMemberModel(
+            id=member.id
+        )
+        model.user_id = str(member.user_id)
+        model.team_id = str(member.team_id)
+        model.role = member.role
+        model.joined_at = member.joined_at
+        self.session.add(model)
+
+    def find_by_user_id(self, user_id: UUID) -> List[TeamMember]:
+        models = (
+            self.session.query(TeamMemberModel)
+            .filter(TeamMemberModel.user_id == str(user_id))
+            .all()
+        )
+        return [
+            TeamMember(
+                id=m.id,
+                user_id=UUID(m.user_id),
+                team_id=UUID(m.team_id),
+                role=m.role,
+                joined_at=m.joined_at,
+            )
+            for m in models
+        ]
+
+    def find_by_team_id(self, team_id: UUID) -> List[TeamMember]:
+        models = (
+            self.session.query(TeamMemberModel)
+            .filter(TeamMemberModel.team_id == str(team_id))
+            .all()
+        )
+        return [
+            TeamMember(
+                id=m.id,
+                user_id=UUID(m.user_id),
+                team_id=UUID(m.team_id),
+                role=m.role,
+                joined_at=m.joined_at,
             )
             for m in models
         ]
@@ -297,6 +386,29 @@ class SqlAlchemyRoleRepository(RoleRepository):
             for m in models
         ]
 
+    # Convenience helpers for seed scripts
+    def add(self, role: Role) -> None:
+        """Add a new role (alias for save)."""
+        self.save(role)
+
+    def find_by_name_and_team(self, name: str, team_id: UUID) -> Optional[Role]:
+        model = (
+            self.session.query(RoleModel)
+            .filter(RoleModel.team_id == team_id, RoleModel.name == name)
+            .one_or_none()
+        )
+        if not model:
+            return None
+        return Role(
+            id=model.id,
+            team_id=model.team_id,
+            name=model.name,
+            level=model.level,
+            base_capacity=model.base_capacity,
+            description=model.description,
+            created_at=model.created_at,
+        )
+
 
 class SqlAlchemyProjectRepository(ProjectRepository):
     """SQLAlchemy implementation of ProjectRepository."""
@@ -358,6 +470,28 @@ class SqlAlchemyProjectRepository(ProjectRepository):
             for m in models
         ]
 
+    # Convenience helpers for seed scripts
+    def add(self, project: Project) -> None:
+        """Add a new project (alias for save)."""
+        self.save(project)
+
+    def find_by_name_and_team(self, name: str, team_id: UUID) -> Optional[Project]:
+        model = (
+            self.session.query(ProjectModel)
+            .filter(ProjectModel.team_id == team_id, ProjectModel.name == name)
+            .one_or_none()
+        )
+        if not model:
+            return None
+        return Project(
+            id=model.id,
+            team_id=model.team_id,
+            name=model.name,
+            description=model.description,
+            status=model.status,
+            created_at=model.created_at,
+        )
+
 
 class SqlAlchemyTaskRepository(TaskRepository):
     """SQLAlchemy implementation of TaskRepository."""
@@ -379,6 +513,11 @@ class SqlAlchemyTaskRepository(TaskRepository):
             completion_percentage=model.completion_percentage,
             completion_source=model.completion_source,
             due_date=model.due_date,
+            expected_start_date=model.expected_start_date,
+            expected_end_date=model.expected_end_date,
+            actual_start_date=model.actual_start_date,
+            actual_end_date=model.actual_end_date,
+            is_delayed=model.is_delayed,
             blocked_reason=model.blocked_reason,
             created_at=model.created_at,
             updated_at=model.updated_at,
@@ -398,6 +537,11 @@ class SqlAlchemyTaskRepository(TaskRepository):
         model.completion_percentage = task.completion_percentage
         model.completion_source = task.completion_source
         model.due_date = task.due_date
+        model.expected_start_date = task.expected_start_date
+        model.expected_end_date = task.expected_end_date
+        model.actual_start_date = task.actual_start_date
+        model.actual_end_date = task.actual_end_date
+        model.is_delayed = task.is_delayed
         model.blocked_reason = task.blocked_reason
         model.created_at = task.created_at
         model.updated_at = task.updated_at
@@ -450,6 +594,11 @@ class SqlAlchemyTaskRepository(TaskRepository):
             return []
         models = self.session.query(TaskModel).filter(TaskModel.id.in_(task_ids)).all()
         return [self._to_domain(m) for m in models]
+
+    # Convenience alias used by seed scripts
+    def add(self, task: Task) -> None:
+        """Add a new task (alias for save)."""
+        self.save(task)
 
 
 class SqlAlchemyTaskDependencyRepository(TaskDependencyRepository):
@@ -520,6 +669,50 @@ class SqlAlchemyTaskDependencyRepository(TaskDependencyRepository):
         if model:
             self.session.delete(model)
 
+    # Convenience alias used by seed scripts
+    def add(self, dependency: TaskDependency) -> None:
+        """Add a new task dependency (alias for save)."""
+        self.save(dependency)
+
+
+class SqlAlchemyTeamInviteRepository(TeamInviteRepository):
+    """SQLAlchemy implementation of TeamInviteRepository."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def save(self, invite: TeamInvite) -> None:
+        model = self.session.get(TeamInviteModel, invite.id) or TeamInviteModel(
+            id=invite.id
+        )
+        model.team_id = str(invite.team_id)
+        model.role = invite.role
+        model.token = invite.token
+        model.expires_at = invite.expires_at
+        model.created_by = str(invite.created_by)
+        model.created_at = invite.created_at
+        model.used_at = invite.used_at
+        self.session.add(model)
+
+    def find_by_token(self, token: str) -> Optional[TeamInvite]:
+        model = (
+            self.session.query(TeamInviteModel)
+            .filter(TeamInviteModel.token == token)
+            .one_or_none()
+        )
+        if not model:
+            return None
+        return TeamInvite(
+            id=model.id,
+            team_id=UUID(model.team_id),
+            role=model.role,
+            token=model.token,
+            expires_at=model.expires_at,
+            created_by=UUID(model.created_by),
+            created_at=model.created_at,
+            used_at=model.used_at,
+        )
+
 
 class SqlAlchemyNoteRepository(NoteRepository):
     """SQLAlchemy implementation of NoteRepository."""
@@ -570,4 +763,5 @@ class SqlAlchemyNoteRepository(NoteRepository):
             )
             for m in models
         ]
+
 

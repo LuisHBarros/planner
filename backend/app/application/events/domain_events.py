@@ -96,3 +96,35 @@ class NoteAdded(DomainEvent):
     note_id: UUID
     author_id: Optional[UUID]
     user_id: Optional[UUID] = None
+
+
+@dataclass
+class TaskDelayed(DomainEvent):
+    """Event emitted when a task is detected as delayed."""
+
+    task_id: UUID
+    delay_seconds: int
+
+
+@dataclass
+class ScheduleChanged(DomainEvent):
+    """Event emitted when a task's expected schedule changes (propagation)."""
+
+    task_id: UUID
+    old_expected_start: Optional[datetime]
+    old_expected_end: Optional[datetime]
+    new_expected_start: Optional[datetime]
+    new_expected_end: Optional[datetime]
+    caused_by_task_id: Optional[UUID]
+
+
+@dataclass
+class ScheduleOverridden(DomainEvent):
+    """Event emitted when a manager manually overrides a task schedule."""
+
+    task_id: UUID
+    old_expected_start: Optional[datetime]
+    old_expected_end: Optional[datetime]
+    new_expected_start: Optional[datetime]
+    new_expected_end: Optional[datetime]
+    changed_by_user_id: Optional[UUID]

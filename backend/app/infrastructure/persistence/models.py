@@ -16,8 +16,16 @@ from sqlalchemy.orm import relationship
 
 from app.infrastructure.database import Base
 from app.domain.models.enums import (
-    TaskStatus, TaskPriority, RoleLevel, ProjectStatus,
-    CompanyPlan, DependencyType, NoteType, CompletionSource,
+    TaskStatus,
+    TaskPriority,
+    RoleLevel,
+    ProjectStatus,
+    CompanyPlan,
+    DependencyType,
+    NoteType,
+    CompletionSource,
+    ScheduleChangeReason,
+    TeamMemberRole,
 )
 
 
@@ -113,6 +121,11 @@ class TaskModel(Base):
     completion_percentage = Column(Integer, nullable=True)
     completion_source = Column(SQLEnum(CompletionSource), nullable=True)
     due_date = Column(DateTime, nullable=True)
+    expected_start_date = Column(DateTime, nullable=True)
+    expected_end_date = Column(DateTime, nullable=True)
+    actual_start_date = Column(DateTime, nullable=True)
+    actual_end_date = Column(DateTime, nullable=True)
+    is_delayed = Column(Boolean, default=False)
     blocked_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -130,6 +143,24 @@ class TaskModel(Base):
         foreign_keys="TaskDependencyModel.depends_on_task_id",
         back_populates="depends_on_task"
     )
+
+
+class ScheduleHistoryModel(Base):
+    """SQLAlchemy model for ScheduleHistory."""
+
+    __tablename__ = "schedule_history"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
+    old_expected_start = Column(DateTime, nullable=True)
+    old_expected_end = Column(DateTime, nullable=True)
+    new_expected_start = Column(DateTime, nullable=True)
+    new_expected_end = Column(DateTime, nullable=True)
+    reason = Column(SQLEnum(ScheduleChangeReason), nullable=False)
+    caused_by_task_id = Column(String(36), ForeignKey("tasks.id"), nullable=True)
+    changed_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 
 class TaskDependencyModel(Base):
@@ -176,3 +207,30 @@ class EmailPreferencesModel(Base):
     digest_mode = Column(String(20), default="daily")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TeamMemberModel(Base):
+    """SQLAlchemy model for TeamMember."""
+
+    __tablename__ = "team_members"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    team_id = Column(String(36), ForeignKey("teams.id"), nullable=False)
+    role = Column(SQLEnum(TeamMemberRole), nullable=False, default=TeamMemberRole.MEMBER)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TeamInviteModel(Base):
+    """SQLAlchemy model for TeamInvite."""
+
+    __tablename__ = "team_invites"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    team_id = Column(String(36), ForeignKey("teams.id"), nullable=False)
+    role = Column(SQLEnum(TeamMemberRole), nullable=False)
+    token = Column(String(255), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    used_at = Column(DateTime, nullable=True)

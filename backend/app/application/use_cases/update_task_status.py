@@ -10,6 +10,7 @@ from app.application.ports.task_repository import TaskRepository
 from app.application.ports.note_repository import NoteRepository
 from app.application.ports.event_bus import EventBus
 from app.application.events.domain_events import TaskStatusChanged, TaskCompleted
+from app.application.services.schedule_service import ScheduleService
 from app.domain.exceptions import BusinessRuleViolation
 
 
@@ -21,10 +22,12 @@ class UpdateTaskStatusUseCase:
         task_repository: TaskRepository,
         note_repository: NoteRepository,
         event_bus: EventBus,
+        schedule_service: Optional[ScheduleService] = None,
     ):
         self.task_repository = task_repository
         self.note_repository = note_repository
         self.event_bus = event_bus
+        self.schedule_service = schedule_service
     
     def execute(
         self,
@@ -88,6 +91,10 @@ class UpdateTaskStatusUseCase:
                     user_id=user_id,
                 )
             )
+
+            # UC-027 / UC-028: detect delay and propagate schedule changes
+            if self.schedule_service is not None:
+                self.schedule_service.handle_task_completed(task)
         
         # Create note
         note = Note.create_system_note(

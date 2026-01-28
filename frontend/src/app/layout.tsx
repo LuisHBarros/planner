@@ -1,15 +1,18 @@
-import type { ReactNode } from "react";
+"use client";
+
 import "../app/globals.css";
+import React from "react";
 
-export const metadata = {
-  title: "Planner Multiplayer",
-  description: "Role-first, dependency aware planning with Claude-style UX"
-};
-
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({
+  children
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en" className="dark">
-      <body>{children}</body>
+    <html lang="en">
+      <body className="min-h-screen bg-gradient-to-br from-stone-50 via-amber-50 to-orange-50">
+        {children}
+      </body>
     </html>
   );
 }

@@ -25,6 +25,11 @@ class Task:
         completion_percentage: Optional[int] = None,
         completion_source: Optional[CompletionSource] = None,
         due_date: Optional[datetime] = None,
+        expected_start_date: Optional[datetime] = None,
+        expected_end_date: Optional[datetime] = None,
+        actual_start_date: Optional[datetime] = None,
+        actual_end_date: Optional[datetime] = None,
+        is_delayed: bool = False,
         blocked_reason: Optional[str] = None,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
@@ -42,6 +47,11 @@ class Task:
         self.completion_percentage = completion_percentage
         self.completion_source = completion_source
         self.due_date = due_date
+        self.expected_start_date = expected_start_date
+        self.expected_end_date = expected_end_date
+        self.actual_start_date = actual_start_date
+        self.actual_end_date = actual_end_date
+        self.is_delayed = is_delayed
         self.blocked_reason = blocked_reason
         self.created_at = created_at or datetime.now(UTC)
         self.updated_at = updated_at or datetime.now(UTC)
@@ -56,6 +66,8 @@ class Task:
         role_responsible_id: UUID,
         priority: TaskPriority = TaskPriority.MEDIUM,
         due_date: Optional[datetime] = None,
+        expected_start_date: Optional[datetime] = None,
+        expected_end_date: Optional[datetime] = None,
         rank_index: float = 1.0,
     ) -> "Task":
         """Create a new task (BR-005)."""
@@ -72,6 +84,11 @@ class Task:
             completion_percentage=None,
             completion_source=None,
             due_date=due_date,
+            expected_start_date=expected_start_date,
+            expected_end_date=expected_end_date,
+            actual_start_date=None,
+            actual_end_date=None,
+            is_delayed=False,
         )
     
     def claim(self, user: User, user_roles: list[UUID]) -> None:
@@ -142,9 +159,20 @@ class Task:
         self.status = new_status
         self.updated_at = datetime.now(UTC)
 
-        # BR-007: Set completed_at when status changes to done
+        # When task moves to DOING for the first time, set actual_start_date
+        if new_status == TaskStatus.DOING and self.actual_start_date is None:
+            self.actual_start_date = datetime.now(UTC)
+
+        # BR-007: Set completed_at and actual_end_date when status changes to done
         if new_status == TaskStatus.DONE:
-            self.completed_at = datetime.now(UTC)
+            now = datetime.now(UTC)
+            self.completed_at = now
+            # Only set actual_start_date if it was never set (edge case: todo -> done)
+            if self.actual_start_date is None:
+                self.actual_start_date = now
+            # Actual end date is immutable once set
+            if self.actual_end_date is None:
+                self.actual_end_date = now
             self.completion_percentage = 100
             self.completion_source = CompletionSource.MANUAL
     

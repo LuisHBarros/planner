@@ -1,32 +1,42 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: "class",
   content: [
-    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/components/**/*.{js,ts,jsx,tsx,mdx}"
+    "./src/app/**/*.{js,ts,jsx,tsx}",
+    "./src/components/**/*.{js,ts,jsx,tsx}"
   ],
   theme: {
     extend: {
       colors: {
-        background: "#050816",
-        surface: "#0B1020",
-        surfaceSubtle: "#12172A",
-        accent: "#7C5CFC",
-        accentSoft: "#2E2352",
-        accentMuted: "#A396FF",
-        borderSubtle: "#252A3F",
-        textPrimary: "#F9FAFB",
-        textSecondary: "#9CA3AF",
-        danger: "#F97373",
-        warning: "#FACC15",
-        success: "#4ADE80"
-      },
-      boxShadow: {
-        card: "0 18px 45px rgba(0,0,0,0.55)"
-      },
-      borderRadius: {
-        pill: "9999px"
+        amber: {
+          50: "#fffbeb",
+          100: "#fef3c7",
+          200: "#fde68a",
+          300: "#fcd34d",
+          400: "#fbbf24",
+          500: "#f59e0b",
+          600: "#d97706",
+          700: "#b45309",
+          800: "#92400e",
+          900: "#78350f"
+        },
+        orange: {
+          50: "#fff7ed",
+          100: "#ffedd5",
+          200: "#fed7aa",
+          300: "#fdba74",
+          400: "#fb923c",
+          500: "#f97316",
+          600: "#ea580c",
+          700: "#c2410c",
+          800: "#9a3412",
+          900: "#7c2d12"
+        },
+        stone: {
+          50: "#faf5f0",
+          100: "#f5ebe1",
+          200: "#e7dac7"
+        }
       }
     }
   },

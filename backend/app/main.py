@@ -18,7 +18,7 @@ from app.infrastructure.persistence.repositories import (
     SqlAlchemyTaskDependencyRepository,
     SqlAlchemyNoteRepository,
 )
-from app.api.routes import companies, teams, roles, projects, tasks
+from app.api.routes import companies, teams, roles, projects, tasks, invites, me
 from app.api.exceptions import setup_exception_handlers
 
 
@@ -68,6 +68,8 @@ def create_app() -> FastAPI:
     app.include_router(roles.router, prefix="/api/roles", tags=["roles"])
     app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
+    app.include_router(invites.router, prefix="/api", tags=["invites"])
+    app.include_router(me.router, prefix="/api", tags=["me"])
 
     return app
 

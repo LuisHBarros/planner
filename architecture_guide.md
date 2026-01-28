@@ -393,7 +393,7 @@ Domain-Driven Design (DDD)
 CQRS (Command Query Responsibility Segregation)
 Event Sourcing
 
-
+Remember: Don't document anything about pure code. Instead, create documentation about architecture, use cases, and things of that nature.
 
 
 Remember: The goal is to create maintainable, testable software. Use these patterns as guidelines, not strict rules. Adapt them to your project's needs.
