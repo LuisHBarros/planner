@@ -43,7 +43,7 @@ cat > "$PROJECT_ROOT/Specification_2.1.md" << 'EOF'
 
 **Version:** 2.1  
 **Status:** REFINED  
-**Last Updated:** $(date +%Y-%m-%d)  
+**Last Updated:** __SPEC_DATE__  
 **Changes:** Schedule system clarifications, edge cases, and value object requirements
 
 ---
@@ -590,6 +590,7 @@ test_manager_override_updates_chain():
 
 EOF
 
+sed -i "s/__SPEC_DATE__/$(date +%Y-%m-%d)/" "$PROJECT_ROOT/Specification_2.1.md"
 log_success "Created Specification_2.1.md"
 
 # ============================================================================
@@ -1358,7 +1359,7 @@ log_success "Updated architecture_guide.md with Value Objects section"
 cat > "$PROJECT_ROOT/IMPLEMENTATION_SUMMARY.md" << 'EOF'
 # Schedule System Refinements - Implementation Summary
 
-**Date:** $(date)  
+**Date:** __DATETIME__  
 **Version:** 2.1  
 **Status:** Documentation and Foundation Created
 
@@ -1475,9 +1476,10 @@ Each phase can be rolled back independently:
 
 ---
 
-Generated: $(date)
+Generated: __DATETIME__
 EOF
 
+sed -i "s/__DATETIME__/$(date)/g" "$PROJECT_ROOT/IMPLEMENTATION_SUMMARY.md"
 log_success "Created IMPLEMENTATION_SUMMARY.md"
 
 # ============================================================================
@@ -1520,18 +1522,3 @@ echo "  3. Implementation by development team"
 echo ""
 
 log_success "Script execution complete!"
-
-EOF
-
-cat > "$PROJECT_ROOT/scripts/implement-schedule-refinements.sh" << 'SCRIPT_EOF'
-#!/bin/bash
-# [Insert content above]
-SCRIPT_EOF
-
-chmod +x "$PROJECT_ROOT/scripts/implement-schedule-refinements.sh"
-
-echo "✅ Script created at: scripts/implement-schedule-refinements.sh"
-echo ""
-echo "To run this script:"
-echo "  cd $(pwd)"
-echo "  bash scripts/implement-schedule-refinements.sh"
