@@ -14,6 +14,7 @@ from app.domain.models.task_dependency import TaskDependency
 from app.domain.models.note import Note
 from app.domain.models.team_member import TeamMember
 from app.domain.models.team_invite import TeamInvite
+from app.domain.models.schedule_history import ScheduleHistory
 from app.domain.models.enums import TaskStatus
 from app.application.ports.company_repository import CompanyRepository
 from app.application.ports.team_repository import TeamRepository
@@ -25,6 +26,7 @@ from app.application.ports.task_dependency_repository import TaskDependencyRepos
 from app.application.ports.note_repository import NoteRepository
 from app.application.ports.team_member_repository import TeamMemberRepository
 from app.application.ports.team_invite_repository import TeamInviteRepository
+from app.application.ports.schedule_history_repository import ScheduleHistoryRepository
 from app.infrastructure.persistence.models import (
     CompanyModel,
     TeamModel,
@@ -36,6 +38,7 @@ from app.infrastructure.persistence.models import (
     NoteModel,
     TeamMemberModel,
     TeamInviteModel,
+    ScheduleHistoryModel,
 )
 
 
@@ -501,15 +504,15 @@ class SqlAlchemyTaskRepository(TaskRepository):
 
     def _to_domain(self, model: TaskModel) -> Task:
         return Task(
-            id=model.id,
-            project_id=model.project_id,
+            id=UUID(model.id) if isinstance(model.id, str) else model.id,
+            project_id=UUID(model.project_id) if isinstance(model.project_id, str) else model.project_id,
             title=model.title,
             description=model.description,
-            role_responsible_id=model.role_responsible_id,
+            role_responsible_id=UUID(model.role_responsible_id) if isinstance(model.role_responsible_id, str) else model.role_responsible_id,
             status=model.status,
             priority=model.priority,
             rank_index=model.rank_index,
-            user_responsible_id=model.user_responsible_id,
+            user_responsible_id=UUID(model.user_responsible_id) if model.user_responsible_id and isinstance(model.user_responsible_id, str) else model.user_responsible_id,
             completion_percentage=model.completion_percentage,
             completion_source=model.completion_source,
             due_date=model.due_date,
@@ -549,7 +552,7 @@ class SqlAlchemyTaskRepository(TaskRepository):
         self.session.add(model)
 
     def find_by_id(self, task_id: UUID) -> Optional[Task]:
-        model = self.session.get(TaskModel, task_id)
+        model = self.session.get(TaskModel, str(task_id))
         if not model:
             return None
         return self._to_domain(model)
@@ -764,4 +767,64 @@ class SqlAlchemyNoteRepository(NoteRepository):
             for m in models
         ]
 
+
+class SqlAlchemyScheduleHistoryRepository(ScheduleHistoryRepository):
+    """SQLAlchemy implementation of ScheduleHistoryRepository.
+
+    This repository is append-only (immutable records per BR-025).
+    ScheduleHistory records NEVER change - new changes create new records.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def save(self, history: ScheduleHistory) -> None:
+        """Persist a schedule history record (immutable append-only)."""
+        model = ScheduleHistoryModel(
+            id=str(history.id),
+            task_id=str(history.task_id),
+            old_expected_start=history.old_expected_start,
+            old_expected_end=history.old_expected_end,
+            new_expected_start=history.new_expected_start,
+            new_expected_end=history.new_expected_end,
+            reason=history.reason,
+            caused_by_task_id=str(history.caused_by_task_id) if history.caused_by_task_id else None,
+            changed_by_user_id=str(history.changed_by_user_id) if history.changed_by_user_id else None,
+        )
+        self.session.add(model)
+
+    def find_by_task_id(self, task_id: UUID) -> List[ScheduleHistory]:
+        """Return all schedule history records for a task, ordered by created_at."""
+        models = (
+            self.session.query(ScheduleHistoryModel)
+            .filter(ScheduleHistoryModel.task_id == str(task_id))
+            .order_by(ScheduleHistoryModel.created_at)
+            .all()
+        )
+        return [self._model_to_domain(m) for m in models]
+
+    def find_by_caused_by_task_id(self, caused_by_task_id: UUID) -> List[ScheduleHistory]:
+        """Return all schedule history records caused by a specific task."""
+        models = (
+            self.session.query(ScheduleHistoryModel)
+            .filter(ScheduleHistoryModel.caused_by_task_id == str(caused_by_task_id))
+            .order_by(ScheduleHistoryModel.created_at)
+            .all()
+        )
+        return [self._model_to_domain(m) for m in models]
+
+    def _model_to_domain(self, model: ScheduleHistoryModel) -> ScheduleHistory:
+        """Convert SQLAlchemy model to domain object."""
+        return ScheduleHistory(
+            id=UUID(model.id) if isinstance(model.id, str) else model.id,
+            task_id=UUID(model.task_id) if isinstance(model.task_id, str) else model.task_id,
+            old_expected_start=model.old_expected_start,
+            old_expected_end=model.old_expected_end,
+            new_expected_start=model.new_expected_start,
+            new_expected_end=model.new_expected_end,
+            reason=model.reason,
+            caused_by_task_id=UUID(model.caused_by_task_id) if model.caused_by_task_id else None,
+            changed_by_user_id=UUID(model.changed_by_user_id) if model.changed_by_user_id else None,
+            created_at=model.created_at,
+        )
 

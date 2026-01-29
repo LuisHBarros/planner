@@ -518,31 +518,31 @@ test_manager_override_updates_chain():
 
 ### Phase 1: Value Objects & Domain Services
 
-- [ ] Create ValueObject base class
-- [ ] Implement TaskId, ProjectId, UserId, RoleId, TeamId
-- [ ] Implement UtcDateTime value object
-- [ ] Update all domain models to use value objects
-- [ ] Create ScheduleService domain service
-- [ ] Create RankingService domain service
+- [x] Create ValueObject base class (frozen dataclasses)
+- [x] Implement TaskId, ProjectId, UserId, RoleId, TeamId
+- [x] Implement UtcDateTime value object
+- [ ] Update all domain models to use value objects (incremental adoption)
+- [x] Create ScheduleService domain service (schedule_service_refined.py)
+- [x] Create RankingService domain service (ranking.py)
 - [ ] Create AuditService domain service
 
 ### Phase 2: Schedule Refinements
 
-- [ ] Implement BR-026 (task lifecycle awareness)
-- [ ] Implement BR-027 (automatic detection)
-- [ ] Refactor propagation algorithm (max delay, multiple paths)
-- [ ] Add ScheduleHistoryRepository
-- [ ] Implement UC-030 (delay chain)
+- [x] Implement BR-026 (task lifecycle awareness)
+- [x] Implement BR-027 (automatic detection)
+- [x] Refactor propagation algorithm (max delay, multiple paths)
+- [x] Add ScheduleHistoryRepository
+- [x] Implement UC-030 (delay chain)
 
 ### Phase 3: Use Case Refactoring
 
-- [ ] Refactor CreateTaskUseCase (SRP)
-- [ ] Refactor UpdateTaskStatusUseCase (automatic propagation)
-- [ ] Refactor OverrideTaskScheduleUseCase
-- [ ] Add critical tests
+- [x] Refactor CreateTaskUseCase (SRP)
+- [x] Refactor UpdateTaskStatusUseCase (automatic propagation)
+- [x] Refactor OverrideTaskScheduleUseCase
+- [x] Add critical tests (98 tests passing)
 
 ### Phase 4: API & Frontend
 
-- [ ] Add GET /api/tasks/{id}/delay-chain endpoint
-- [ ] Add schedule visualization on task details
-- [ ] Implement delay cause chain UI
+- [x] Add GET /api/tasks/{id}/delay-chain endpoint
+- [ ] Add schedule visualization on task details (frontend)
+- [ ] Implement delay cause chain UI (frontend)

@@ -32,6 +32,7 @@ from app.application.use_cases.add_task_note import AddTaskNoteUseCase
 from app.application.use_cases.add_task_dependency import AddTaskDependencyUseCase
 from app.application.use_cases.remove_task_dependency import RemoveTaskDependencyUseCase
 from app.application.use_cases.update_task_progress_manual import UpdateTaskProgressManualUseCase
+from app.application.use_cases.get_delay_chain import GetDelayChainUseCase
 from app.domain.models.task import Task
 from app.domain.models.note import Note
 from app.domain.models.task_dependency import TaskDependency
@@ -41,6 +42,7 @@ from app.domain.models.enums import (
     CompletionSource,
     DependencyType,
     NoteType,
+    ScheduleChangeReason,
 )
 from app.domain.exceptions import BusinessRuleViolation
 
@@ -158,6 +160,41 @@ class NoteListResponse(BaseModel):
 class DependencyListResponse(BaseModel):
     """Response model for list of dependencies."""
     dependencies: List[TaskDependencyResponse]
+
+
+class DelayChainEntryResponse(BaseModel):
+    """Response model for a single delay chain entry."""
+    task_id: str
+    task_title: str
+    old_expected_start: Optional[str] = None
+    old_expected_end: Optional[str] = None
+    new_expected_start: Optional[str] = None
+    new_expected_end: Optional[str] = None
+    reason: ScheduleChangeReason
+    caused_by_task_id: Optional[str] = None
+    caused_by_task_title: Optional[str] = None
+    changed_by_user_id: Optional[str] = None
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class DelayChainResponse(BaseModel):
+    """Response model for task delay chain (UC-030).
+
+    Provides causal chain of delays for root cause analysis.
+    """
+    task_id: str
+    task_title: str
+    is_delayed: bool
+    total_delay_days: Optional[float] = None
+    entries: List[DelayChainEntryResponse]
+    root_cause_task_id: Optional[str] = None
+    root_cause_task_title: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 
 def _task_to_response(task: Task) -> TaskResponse:
@@ -589,7 +626,73 @@ async def update_task_progress(
         completion_percentage=request.completion_percentage,
         user_id=request.user_id,
     )
-    
+
     db.commit()
-    
+
     return _task_to_response(task)
+
+
+@router.get("/{task_id}/delay-chain", response_model=DelayChainResponse)
+async def get_task_delay_chain(
+    task_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Get the delay chain for a task (UC-030).
+
+    Returns the complete causal chain of schedule changes for a task,
+    enabling root cause analysis of delays.
+
+    Example response:
+        Task D is 4 days delayed
+        ↳ caused by Task C (shifted 2 days)
+           ↳ caused by Task B (shifted 2 days)
+              ↳ caused by Task A (root cause - completed late)
+
+    This endpoint supports i18n-ready responses - the reason enum
+    can be translated on the client side.
+    """
+    uow = SqlAlchemyUnitOfWork()
+
+    use_case = GetDelayChainUseCase(uow=uow)
+
+    try:
+        result = use_case.execute(task_id=task_id)
+    except BusinessRuleViolation as exc:
+        if exc.code == "task_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc.message),
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc.message),
+        ) from exc
+
+    # Convert DTO to response
+    entries = [
+        DelayChainEntryResponse(
+            task_id=str(entry.task_id),
+            task_title=entry.task_title,
+            old_expected_start=entry.old_expected_start.isoformat() if entry.old_expected_start else None,
+            old_expected_end=entry.old_expected_end.isoformat() if entry.old_expected_end else None,
+            new_expected_start=entry.new_expected_start.isoformat() if entry.new_expected_start else None,
+            new_expected_end=entry.new_expected_end.isoformat() if entry.new_expected_end else None,
+            reason=entry.reason,
+            caused_by_task_id=str(entry.caused_by_task_id) if entry.caused_by_task_id else None,
+            caused_by_task_title=entry.caused_by_task_title,
+            changed_by_user_id=str(entry.changed_by_user_id) if entry.changed_by_user_id else None,
+            created_at=entry.created_at.isoformat(),
+        )
+        for entry in result.entries
+    ]
+
+    return DelayChainResponse(
+        task_id=str(result.task_id),
+        task_title=result.task_title,
+        is_delayed=result.is_delayed,
+        total_delay_days=result.total_delay_days,
+        entries=entries,
+        root_cause_task_id=str(result.root_cause_task_id) if result.root_cause_task_id else None,
+        root_cause_task_title=result.root_cause_task_title,
+    )

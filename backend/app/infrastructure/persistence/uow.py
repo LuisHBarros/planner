@@ -18,6 +18,7 @@ from app.infrastructure.persistence.repositories import (
     SqlAlchemyNoteRepository,
     SqlAlchemyTeamInviteRepository,
     SqlAlchemyTeamMemberRepository,
+    SqlAlchemyScheduleHistoryRepository,
 )
 
 
@@ -42,6 +43,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.notes = None  # type: ignore[assignment]
         self.team_invites = None  # type: ignore[assignment]
         self.team_members = None  # type: ignore[assignment]
+        self.schedule_history = None  # type: ignore[assignment]
 
     @property
     def session(self) -> Session:
@@ -63,6 +65,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.notes = SqlAlchemyNoteRepository(self.session)
         self.team_invites = SqlAlchemyTeamInviteRepository(self.session)
         self.team_members = SqlAlchemyTeamMemberRepository(self.session)
+        self.schedule_history = SqlAlchemyScheduleHistoryRepository(self.session)
 
         return self
 

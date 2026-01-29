@@ -75,12 +75,3 @@ class TeamMemberRole(str, Enum):
     MANAGER = "manager"
     BACKEND = "backend"
     MEMBER = "member"
-
-
-class ScheduleChangeReason(str, Enum):
-    """Reason for a schedule change in ScheduleHistory."""
-
-    DEPENDENCY_DELAY = "dependency_delay"
-    MANUAL_OVERRIDE = "manual_override"
-    SCOPE_CHANGE = "scope_change"
-    ESTIMATION_ERROR = "estimation_error"
