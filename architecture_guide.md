@@ -397,3 +397,122 @@ Remember: Don't document anything about pure code. Instead, create documentation
 
 
 Remember: The goal is to create maintainable, testable software. Use these patterns as guidelines, not strict rules. Adapt them to your project's needs.
+
+---
+
+## 🔄 ADDENDUM: Value Objects and Domain Services (v2.1)
+
+### Value Objects for Type Safety
+
+Domain models must use **Value Objects** instead of raw primitives:
+```python
+# ❌ WRONG: Raw UUID
+class Task:
+    def __init__(self, id: UUID, project_id: UUID, user_id: UUID):
+        pass
+
+# ✅ CORRECT: Value Objects
+class Task:
+    def __init__(self, id: TaskId, project_id: ProjectId, user_id: UserId):
+        pass
+```
+
+**Benefits:**
+
+- Type safety: Can't accidentally pass ProjectId where TaskId expected
+- Semantic clarity: `task.id` is obviously a TaskId, not ambiguous UUID
+- Behavior: Can add methods like `__hash__`, `__eq__` for domain logic
+- Prevents: "Primitive Obsession" anti-pattern
+
+### Domain Services for Business Logic
+
+Extract complex business logic into **Domain Services** (pure, no persistence):
+```python
+# ✅ Domain Service (pure logic)
+class ScheduleService:
+    def detect_delay(self, task: Task) -> bool:
+        """Pure calculation, no side effects"""
+        return task.actual_end_date > task.expected_end_date
+
+    def propagate_delay_to_dependents(self, task: Task, dependents: List[Task]):
+        """Calculate new dates, return results (caller persists)"""
+        # ... algorithm ...
+        return updated_tasks  # Caller handles persistence
+
+# ✅ Application Service (orchestration)
+class UpdateTaskStatusUseCase:
+    def execute(self, task_id: UUID, new_status: TaskStatus):
+        task = self.task_repository.find_by_id(task_id)
+
+        # Use domain service for calculation
+        updated = self.schedule_service.propagate_delay_to_dependents(...)
+
+        # Persist results
+        for updated_task in updated:
+            self.task_repository.save(updated_task)
+
+        # Emit events
+        self.event_bus.emit(ScheduleChanged(...))
+```
+
+**Key Distinction:**
+
+- **Domain Service**: Pure logic, reusable, testable, no persistence
+- **Application Service (Use Case)**: Orchestration, coordinates domain services and repositories
+
+### Updated Dependency Directions
+```
+Raw Data ──▶ Value Objects ──▶ Domain Entities
+                                    ▲
+                                    │
+                            Domain Services
+                                    │
+                                    ▼
+                        Application Services (Use Cases)
+                                    │
+                                    ▼
+                            Repositories (Persistence)
+```
+
+### Single Responsibility in Use Cases
+
+**CreateTaskUseCase ONLY:**
+- Validate inputs
+- Call domain methods
+- Orchestrate creation
+- Emit events
+
+**NOT:**
+- Calculate ranks → delegate to RankingService
+- Create audit notes → delegate to AuditService
+- Persist multiple entities → each repository handles its own
+
+Result: Each class has ONE reason to change.
+
+### Testing Domain Services
+
+Domain services are **pure** → simple unit tests:
+```python
+def test_detect_delay():
+    service = ScheduleService()
+    task = Task(...)
+
+    # No mocks needed! Pure function
+    assert service.detect_delay(task) == True
+```
+
+Compare to use case testing (requires mocks for repositories, event bus):
+```python
+def test_create_task():
+    # Need mocks for: repositories, event_bus, services
+    task_repo_mock = Mock(spec=TaskRepository)
+    project_repo_mock = Mock(spec=ProjectRepository)
+    event_bus_mock = Mock(spec=EventBus)
+
+    use_case = CreateTaskUseCase(
+        task_repo_mock, project_repo_mock, event_bus_mock
+    )
+    # ... more setup ...
+```
+
+**Conclusion:** Pushing logic into domain services makes tests simpler and more maintainable.
