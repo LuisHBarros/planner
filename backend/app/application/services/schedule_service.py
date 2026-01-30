@@ -9,12 +9,13 @@ This service implements:
 """
 from datetime import datetime
 from datetime import UTC
-from typing import List
+from typing import List, Union
 from uuid import UUID
 
 from app.domain.models.task import Task
 from app.domain.models.schedule_history import ScheduleHistory
 from app.domain.models.enums import ScheduleChangeReason, TaskStatus
+from app.domain.models.value_objects import TaskId
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.task_dependency_repository import TaskDependencyRepository
 from app.application.ports.schedule_history_repository import ScheduleHistoryRepository
@@ -133,8 +134,8 @@ class ScheduleService:
         if delay_delta.total_seconds() <= 0:
             return
 
-        visited: set[UUID] = set()
-        queue: List[UUID] = [root_task.id]
+        visited: set[TaskId] = set()
+        queue: List[TaskId] = [root_task.id]
 
         while queue:
             current_id = queue.pop(0)

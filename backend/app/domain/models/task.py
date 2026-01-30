@@ -1,27 +1,31 @@
 """Task domain model with business rules."""
 from datetime import datetime, UTC
-from typing import Optional
-from uuid import UUID, uuid4
+from typing import Optional, Union
+from uuid import UUID
 
 from app.domain.exceptions import BusinessRuleViolation
 from app.domain.models.enums import TaskStatus, TaskPriority, CompletionSource
 from app.domain.models.user import User
+from app.domain.models.value_objects import TaskId, ProjectId, RoleId, UserId
 
 
 class Task:
-    """Task entity with business logic (BR-002, BR-004-BR-007, BR-018)."""
-    
+    """Task entity with business logic (BR-002, BR-004-BR-007, BR-018).
+
+    Uses value objects for type-safe identifiers per architecture_guide.md v2.1.
+    """
+
     def __init__(
         self,
-        id: UUID,
-        project_id: UUID,
+        id: Union[TaskId, UUID],
+        project_id: Union[ProjectId, UUID],
         title: str,
         description: str,
-        role_responsible_id: UUID,
+        role_responsible_id: Union[RoleId, UUID],
         status: TaskStatus = TaskStatus.TODO,
         priority: TaskPriority = TaskPriority.MEDIUM,
         rank_index: float = 1.0,
-        user_responsible_id: Optional[UUID] = None,
+        user_responsible_id: Optional[Union[UserId, UUID]] = None,
         completion_percentage: Optional[int] = None,
         completion_source: Optional[CompletionSource] = None,
         due_date: Optional[datetime] = None,
@@ -35,15 +39,22 @@ class Task:
         updated_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
     ):
-        self.id = id
-        self.project_id = project_id
+        # Convert raw UUIDs to value objects for type safety
+        self.id = id if isinstance(id, TaskId) else TaskId(id)
+        self.project_id = project_id if isinstance(project_id, ProjectId) else ProjectId(project_id)
+        self.role_responsible_id = (
+            role_responsible_id if isinstance(role_responsible_id, RoleId)
+            else RoleId(role_responsible_id)
+        )
+        self.user_responsible_id = (
+            user_responsible_id if user_responsible_id is None or isinstance(user_responsible_id, UserId)
+            else UserId(user_responsible_id)
+        )
         self.title = title
         self.description = description
-        self.role_responsible_id = role_responsible_id
         self.status = status
         self.priority = priority
         self.rank_index = rank_index
-        self.user_responsible_id = user_responsible_id
         self.completion_percentage = completion_percentage
         self.completion_source = completion_source
         self.due_date = due_date
@@ -60,10 +71,10 @@ class Task:
     @classmethod
     def create(
         cls,
-        project_id: UUID,
+        project_id: Union[ProjectId, UUID],
         title: str,
         description: str,
-        role_responsible_id: UUID,
+        role_responsible_id: Union[RoleId, UUID],
         priority: TaskPriority = TaskPriority.MEDIUM,
         due_date: Optional[datetime] = None,
         expected_start_date: Optional[datetime] = None,
@@ -72,7 +83,7 @@ class Task:
     ) -> "Task":
         """Create a new task (BR-005)."""
         return cls(
-            id=uuid4(),
+            id=TaskId(),  # Generate new TaskId
             project_id=project_id,
             title=title,
             description=description,
@@ -91,37 +102,39 @@ class Task:
             is_delayed=False,
         )
     
-    def claim(self, user: User, user_roles: list[UUID]) -> None:
+    def claim(self, user: User, user_roles: list[Union[RoleId, UUID]]) -> None:
         """
         Claim a task (BR-002, BR-006).
-        
+
         Raises BusinessRuleViolation if:
         - User doesn't have the required role
         - Task is already claimed
         - Task is not in claimable state (todo or blocked)
         """
         # BR-002: User must have the role_responsible role
-        if self.role_responsible_id not in user_roles:
+        # Compare using .value to handle both RoleId and UUID in user_roles
+        role_values = [r.value if isinstance(r, RoleId) else r for r in user_roles]
+        if self.role_responsible_id.value not in role_values:
             raise BusinessRuleViolation(
                 "User doesn't have required role to claim this task",
                 code="user_missing_role"
             )
-        
+
         # BR-002: Task must not be already claimed
         if self.user_responsible_id is not None:
             raise BusinessRuleViolation(
                 "Task already claimed",
                 code="task_already_claimed"
             )
-        
+
         # BR-002: Task must be in claimable state
         if self.status not in [TaskStatus.TODO, TaskStatus.BLOCKED]:
             raise BusinessRuleViolation(
                 f"Cannot claim task in status: {self.status}",
                 code="invalid_status_for_claim"
             )
-        
-        self.user_responsible_id = user.id
+
+        self.user_responsible_id = UserId(user.id) if not isinstance(user.id, UserId) else user.id
         self.status = TaskStatus.DOING
         self.updated_at = datetime.now(UTC)
     

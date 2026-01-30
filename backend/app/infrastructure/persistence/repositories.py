@@ -1,5 +1,5 @@
 """SQLAlchemy repository implementations for domain repositories."""
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -16,6 +16,16 @@ from app.domain.models.team_member import TeamMember
 from app.domain.models.team_invite import TeamInvite
 from app.domain.models.schedule_history import ScheduleHistory
 from app.domain.models.enums import TaskStatus
+from app.domain.models.value_objects import TaskId, ProjectId, RoleId, UserId
+
+
+def _extract_uuid(value: Union[TaskId, ProjectId, RoleId, UserId, UUID, None]) -> Optional[UUID]:
+    """Extract raw UUID from a value object or return as-is if already UUID."""
+    if value is None:
+        return None
+    if hasattr(value, 'value'):
+        return value.value
+    return value
 from app.application.ports.company_repository import CompanyRepository
 from app.application.ports.team_repository import TeamRepository
 from app.application.ports.user_repository import UserRepository
@@ -497,7 +507,10 @@ class SqlAlchemyProjectRepository(ProjectRepository):
 
 
 class SqlAlchemyTaskRepository(TaskRepository):
-    """SQLAlchemy implementation of TaskRepository."""
+    """SQLAlchemy implementation of TaskRepository.
+
+    Handles value objects by extracting raw UUIDs for database operations.
+    """
 
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -528,15 +541,18 @@ class SqlAlchemyTaskRepository(TaskRepository):
         )
 
     def save(self, task: Task) -> None:
-        model = self.session.get(TaskModel, task.id) or TaskModel(id=task.id)
-        model.project_id = task.project_id
+        # Extract raw UUIDs from value objects for database storage
+        task_id = _extract_uuid(task.id)
+        model = self.session.get(TaskModel, str(task_id)) or TaskModel(id=str(task_id))
+        model.project_id = str(_extract_uuid(task.project_id))
         model.title = task.title
         model.description = task.description
-        model.role_responsible_id = task.role_responsible_id
+        model.role_responsible_id = str(_extract_uuid(task.role_responsible_id))
         model.status = task.status
         model.priority = task.priority
         model.rank_index = task.rank_index
-        model.user_responsible_id = task.user_responsible_id
+        user_id = _extract_uuid(task.user_responsible_id)
+        model.user_responsible_id = str(user_id) if user_id else None
         model.completion_percentage = task.completion_percentage
         model.completion_source = task.completion_source
         model.due_date = task.due_date
@@ -551,45 +567,50 @@ class SqlAlchemyTaskRepository(TaskRepository):
         model.completed_at = task.completed_at
         self.session.add(model)
 
-    def find_by_id(self, task_id: UUID) -> Optional[Task]:
-        model = self.session.get(TaskModel, str(task_id))
+    def find_by_id(self, task_id: Union[TaskId, UUID]) -> Optional[Task]:
+        raw_id = _extract_uuid(task_id)
+        model = self.session.get(TaskModel, str(raw_id))
         if not model:
             return None
         return self._to_domain(model)
 
-    def find_by_project_id(self, project_id: UUID) -> List[Task]:
+    def find_by_project_id(self, project_id: Union[ProjectId, UUID]) -> List[Task]:
+        raw_id = str(_extract_uuid(project_id))
         models = (
             self.session.query(TaskModel)
-            .filter(TaskModel.project_id == project_id)
+            .filter(TaskModel.project_id == raw_id)
             .order_by(TaskModel.rank_index)
             .all()
         )
         return [self._to_domain(m) for m in models]
 
     def find_by_role_id(
-        self, role_id: UUID, status: Optional[TaskStatus] = None
+        self, role_id: Union[RoleId, UUID], status: Optional[TaskStatus] = None
     ) -> List[Task]:
+        raw_id = str(_extract_uuid(role_id))
         query = self.session.query(TaskModel).filter(
-            TaskModel.role_responsible_id == role_id
+            TaskModel.role_responsible_id == raw_id
         )
         if status is not None:
             query = query.filter(TaskModel.status == status)
         models = query.order_by(TaskModel.rank_index).all()
         return [self._to_domain(m) for m in models]
 
-    def find_by_user_id(self, user_id: UUID) -> List[Task]:
+    def find_by_user_id(self, user_id: Union[UserId, UUID]) -> List[Task]:
+        raw_id = str(_extract_uuid(user_id))
         models = (
             self.session.query(TaskModel)
-            .filter(TaskModel.user_responsible_id == user_id)
+            .filter(TaskModel.user_responsible_id == raw_id)
             .order_by(TaskModel.rank_index)
             .all()
         )
         return [self._to_domain(m) for m in models]
 
-    def find_dependent_tasks(self, task_id: UUID) -> List[Task]:
+    def find_dependent_tasks(self, task_id: Union[TaskId, UUID]) -> List[Task]:
+        raw_id = str(_extract_uuid(task_id))
         deps = (
             self.session.query(TaskDependencyModel)
-            .filter(TaskDependencyModel.depends_on_task_id == task_id)
+            .filter(TaskDependencyModel.depends_on_task_id == raw_id)
             .all()
         )
         task_ids = [d.task_id for d in deps]
