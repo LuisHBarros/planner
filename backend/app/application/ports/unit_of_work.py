@@ -19,6 +19,9 @@ from app.application.ports.note_repository import NoteRepository
 from app.application.ports.team_invite_repository import TeamInviteRepository
 from app.application.ports.team_member_repository import TeamMemberRepository
 from app.application.ports.schedule_history_repository import ScheduleHistoryRepository
+from app.application.ports.project_member_repository import ProjectMemberRepository
+from app.application.ports.task_assignment_history_repository import TaskAssignmentHistoryRepository
+from app.application.ports.task_abandonment_repository import TaskAbandonmentRepository
 
 
 class UnitOfWork(Protocol, ContextManager["UnitOfWork"]):
@@ -44,6 +47,10 @@ class UnitOfWork(Protocol, ContextManager["UnitOfWork"]):
     team_invites: TeamInviteRepository
     team_members: TeamMemberRepository
     schedule_history: ScheduleHistoryRepository
+    # v3.0 repositories
+    project_members: ProjectMemberRepository
+    task_assignment_history: TaskAssignmentHistoryRepository
+    task_abandonments: TaskAbandonmentRepository
 
     def __enter__(self) -> "UnitOfWork":  # pragma: no cover - protocol
         ...

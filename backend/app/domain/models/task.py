@@ -9,6 +9,16 @@ from app.domain.models.user import User
 from app.domain.models.value_objects import TaskId, ProjectId, RoleId, UserId
 
 
+# Valid status transitions (BR-006, v3.0)
+VALID_TRANSITIONS = {
+    TaskStatus.TODO: [TaskStatus.DOING, TaskStatus.BLOCKED, TaskStatus.CANCELLED],
+    TaskStatus.DOING: [TaskStatus.DONE, TaskStatus.TODO, TaskStatus.BLOCKED, TaskStatus.CANCELLED],
+    TaskStatus.BLOCKED: [TaskStatus.TODO, TaskStatus.CANCELLED],
+    TaskStatus.DONE: [],  # Terminal
+    TaskStatus.CANCELLED: [],  # Terminal
+}
+
+
 class Task:
     """Task entity with business logic (BR-002, BR-004-BR-007, BR-018).
 
@@ -26,6 +36,7 @@ class Task:
         priority: TaskPriority = TaskPriority.MEDIUM,
         rank_index: float = 1.0,
         user_responsible_id: Optional[Union[UserId, UUID]] = None,
+        difficulty: Optional[int] = None,  # v3.0: 1-10, required for selection (BR-TASK-002)
         completion_percentage: Optional[int] = None,
         completion_source: Optional[CompletionSource] = None,
         due_date: Optional[datetime] = None,
@@ -35,9 +46,11 @@ class Task:
         actual_end_date: Optional[datetime] = None,
         is_delayed: bool = False,
         blocked_reason: Optional[str] = None,
+        cancellation_reason: Optional[str] = None,
         created_at: Optional[datetime] = None,
         updated_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
+        cancelled_at: Optional[datetime] = None,
     ):
         # Convert raw UUIDs to value objects for type safety
         self.id = id if isinstance(id, TaskId) else TaskId(id)
@@ -55,6 +68,7 @@ class Task:
         self.status = status
         self.priority = priority
         self.rank_index = rank_index
+        self.difficulty = difficulty
         self.completion_percentage = completion_percentage
         self.completion_source = completion_source
         self.due_date = due_date
@@ -64,9 +78,11 @@ class Task:
         self.actual_end_date = actual_end_date
         self.is_delayed = is_delayed
         self.blocked_reason = blocked_reason
+        self.cancellation_reason = cancellation_reason
         self.created_at = created_at or datetime.now(UTC)
         self.updated_at = updated_at or datetime.now(UTC)
         self.completed_at = completed_at
+        self.cancelled_at = cancelled_at
     
     @classmethod
     def create(
@@ -76,6 +92,7 @@ class Task:
         description: str,
         role_responsible_id: Union[RoleId, UUID],
         priority: TaskPriority = TaskPriority.MEDIUM,
+        difficulty: Optional[int] = None,
         due_date: Optional[datetime] = None,
         expected_start_date: Optional[datetime] = None,
         expected_end_date: Optional[datetime] = None,
@@ -92,6 +109,7 @@ class Task:
             priority=priority,
             rank_index=rank_index,
             user_responsible_id=None,
+            difficulty=difficulty,
             completion_percentage=None,
             completion_source=None,
             due_date=due_date,
@@ -101,6 +119,80 @@ class Task:
             actual_end_date=None,
             is_delayed=False,
         )
+
+    def can_be_selected(self) -> bool:
+        """
+        Check if task can be selected/claimed (BR-TASK-002).
+
+        Returns False if difficulty is None (must be set before selection).
+        """
+        return self.difficulty is not None
+
+    def set_difficulty(self, difficulty: int) -> None:
+        """
+        Set task difficulty (1-10 scale).
+
+        Raises BusinessRuleViolation if:
+        - Difficulty is not in valid range
+        - Task is in terminal state
+        """
+        if not (1 <= difficulty <= 10):
+            raise BusinessRuleViolation(
+                "Difficulty must be between 1 and 10",
+                code="invalid_difficulty"
+            )
+
+        if self.status in [TaskStatus.DONE, TaskStatus.CANCELLED]:
+            raise BusinessRuleViolation(
+                "Cannot set difficulty for completed or cancelled task",
+                code="task_is_terminal"
+            )
+
+        self.difficulty = difficulty
+        self.updated_at = datetime.now(UTC)
+
+    def cancel(self, reason: Optional[str] = None) -> None:
+        """
+        Cancel a task (v3.0).
+
+        Raises BusinessRuleViolation if:
+        - Task is already in terminal state (DONE or CANCELLED)
+        """
+        if self.status == TaskStatus.DONE:
+            raise BusinessRuleViolation(
+                "Cannot cancel completed task",
+                code="done_is_terminal"
+            )
+
+        if self.status == TaskStatus.CANCELLED:
+            raise BusinessRuleViolation(
+                "Task is already cancelled",
+                code="already_cancelled"
+            )
+
+        self.status = TaskStatus.CANCELLED
+        self.cancellation_reason = reason
+        self.cancelled_at = datetime.now(UTC)
+        self.updated_at = datetime.now(UTC)
+
+    def abandon(self) -> None:
+        """
+        Abandon a task (v3.0).
+
+        Resets task to TODO status and clears user_responsible_id.
+        Only allowed when task is DOING.
+
+        Raises BusinessRuleViolation if task is not in DOING status.
+        """
+        if self.status != TaskStatus.DOING:
+            raise BusinessRuleViolation(
+                f"Cannot abandon task in status: {self.status}",
+                code="invalid_status_for_abandon"
+            )
+
+        self.status = TaskStatus.TODO
+        self.user_responsible_id = None
+        self.updated_at = datetime.now(UTC)
     
     def claim(self, user: User, user_roles: list[Union[RoleId, UUID]]) -> None:
         """
@@ -140,13 +232,14 @@ class Task:
     
     def update_status(self, new_status: TaskStatus) -> None:
         """
-        Update task status (BR-006, BR-007).
-        
-        Valid transitions (BR-006):
-        - todo → doing, blocked
-        - doing → done, blocked
-        - blocked → todo
+        Update task status (BR-006, BR-007, v3.0).
+
+        Valid transitions (BR-006, v3.0):
+        - todo → doing, blocked, cancelled
+        - doing → done, todo, blocked, cancelled
+        - blocked → todo, cancelled
         - done → (terminal, cannot change)
+        - cancelled → (terminal, cannot change)
         """
         # BR-007: Done is terminal
         if self.status == TaskStatus.DONE:
@@ -154,15 +247,16 @@ class Task:
                 "Cannot change status of completed task",
                 code="done_is_terminal"
             )
-        
-        # Validate transition
-        valid_transitions = {
-            TaskStatus.TODO: [TaskStatus.DOING, TaskStatus.BLOCKED],
-            TaskStatus.DOING: [TaskStatus.DONE, TaskStatus.BLOCKED],
-            TaskStatus.BLOCKED: [TaskStatus.TODO],
-        }
-        
-        if new_status not in valid_transitions.get(self.status, []):
+
+        # v3.0: Cancelled is terminal
+        if self.status == TaskStatus.CANCELLED:
+            raise BusinessRuleViolation(
+                "Cannot change status of cancelled task",
+                code="cancelled_is_terminal"
+            )
+
+        # Validate transition using module-level constant
+        if new_status not in VALID_TRANSITIONS.get(self.status, []):
             raise BusinessRuleViolation(
                 f"Invalid status transition from {self.status} to {new_status}",
                 code="invalid_status_transition"

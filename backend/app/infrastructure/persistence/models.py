@@ -15,6 +15,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.infrastructure.database import Base
+from sqlalchemy import UniqueConstraint
+
 from app.domain.models.enums import (
     TaskStatus,
     TaskPriority,
@@ -26,6 +28,9 @@ from app.domain.models.enums import (
     CompletionSource,
     ScheduleChangeReason,
     TeamMemberRole,
+    ProjectMemberRole,
+    AbandonmentType,
+    AssignmentAction,
 )
 
 
@@ -108,7 +113,7 @@ class ProjectModel(Base):
 class TaskModel(Base):
     """SQLAlchemy model for Task."""
     __tablename__ = "tasks"
-    
+
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
     title = Column(String(500), nullable=False)
@@ -118,6 +123,7 @@ class TaskModel(Base):
     rank_index = Column(Float, nullable=False, default=1.0)
     role_responsible_id = Column(String(36), ForeignKey("roles.id"), nullable=False)
     user_responsible_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    difficulty = Column(Integer, nullable=True)  # v3.0: 1-10 scale (BR-TASK-002)
     completion_percentage = Column(Integer, nullable=True)
     completion_source = Column(SQLEnum(CompletionSource), nullable=True)
     due_date = Column(DateTime, nullable=True)
@@ -127,9 +133,11 @@ class TaskModel(Base):
     actual_end_date = Column(DateTime, nullable=True)
     is_delayed = Column(Boolean, default=False)
     blocked_reason = Column(Text, nullable=True)
+    cancellation_reason = Column(Text, nullable=True)  # v3.0
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)  # v3.0
     
     project = relationship("ProjectModel", back_populates="tasks")
     notes = relationship("NoteModel", back_populates="task", order_by="NoteModel.created_at")
@@ -234,3 +242,48 @@ class TeamInviteModel(Base):
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     used_at = Column(DateTime, nullable=True)
+
+
+class ProjectMemberModel(Base):
+    """SQLAlchemy model for ProjectMember (v3.0)."""
+
+    __tablename__ = "project_members"
+    __table_args__ = (
+        UniqueConstraint("project_id", "user_id", name="uq_project_member"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    role = Column(SQLEnum(ProjectMemberRole), nullable=False, default=ProjectMemberRole.EMPLOYEE)
+    level = Column(SQLEnum(RoleLevel), nullable=False, default=RoleLevel.MID)
+    is_active = Column(Boolean, default=True)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+    left_at = Column(DateTime, nullable=True)
+
+
+class TaskAssignmentHistoryModel(Base):
+    """SQLAlchemy model for TaskAssignmentHistory (v3.0)."""
+
+    __tablename__ = "task_assignment_history"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    action = Column(SQLEnum(AssignmentAction), nullable=False)
+    abandonment_type = Column(SQLEnum(AbandonmentType), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TaskAbandonmentModel(Base):
+    """SQLAlchemy model for TaskAbandonment (v3.0)."""
+
+    __tablename__ = "task_abandonments"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    abandonment_type = Column(SQLEnum(AbandonmentType), nullable=False)
+    reason = Column(Text, nullable=True)
+    initiated_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

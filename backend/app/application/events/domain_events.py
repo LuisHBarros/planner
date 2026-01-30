@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from app.domain.models.enums import TaskStatus, CompletionSource
+from app.domain.models.enums import TaskStatus, CompletionSource, AbandonmentType, WorkloadStatus
 
 
 @dataclass
@@ -128,3 +128,45 @@ class ScheduleOverridden(DomainEvent):
     new_expected_start: Optional[datetime]
     new_expected_end: Optional[datetime]
     changed_by_user_id: Optional[UUID]
+
+
+# v3.0 Domain Events
+
+
+@dataclass
+class TaskAbandoned(DomainEvent):
+    """Event emitted when a task is abandoned (v3.0)."""
+
+    task_id: UUID
+    user_id: UUID
+    abandonment_type: AbandonmentType
+    initiated_by_user_id: UUID
+
+
+@dataclass
+class TaskCancelled(DomainEvent):
+    """Event emitted when a task is cancelled (v3.0)."""
+
+    task_id: UUID
+    cancelled_by_user_id: UUID
+    reason: Optional[str] = None
+
+
+@dataclass
+class WorkloadWarning(DomainEvent):
+    """Event emitted when a user's workload reaches warning levels (v3.0)."""
+
+    user_id: UUID
+    project_id: UUID
+    status: WorkloadStatus
+    score: int
+    capacity: float
+
+
+@dataclass
+class DifficultySet(DomainEvent):
+    """Event emitted when a task's difficulty is set (v3.0)."""
+
+    task_id: UUID
+    difficulty: int
+    set_by_user_id: UUID

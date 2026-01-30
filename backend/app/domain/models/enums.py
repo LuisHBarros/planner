@@ -8,6 +8,7 @@ class TaskStatus(str, Enum):
     DOING = "doing"
     BLOCKED = "blocked"
     DONE = "done"
+    CANCELLED = "cancelled"  # Terminal state (v3.0)
 
 
 class TaskPriority(str, Enum):
@@ -75,3 +76,39 @@ class TeamMemberRole(str, Enum):
     MANAGER = "manager"
     BACKEND = "backend"
     MEMBER = "member"
+
+
+class AbandonmentType(str, Enum):
+    """Type of task abandonment (v3.0 BR-ASSIGN)."""
+
+    VOLUNTARY = "voluntary"  # Employee abandons their own task
+    FIRED_FROM_TASK = "fired_from_task"  # Manager removes employee from task
+    FIRED_FROM_PROJECT = "fired_from_project"  # Manager fires employee (abandons all tasks)
+    RESIGNED = "resigned"  # Employee resigns (abandons all tasks)
+    TASK_CANCELLED = "task_cancelled"  # Task was cancelled while in progress
+
+
+class WorkloadStatus(str, Enum):
+    """Workload status for an individual (v3.0 BR-WORK)."""
+
+    IMPOSSIBLE = "impossible"  # ratio > 1.5
+    TIGHT = "tight"  # ratio > 1.2
+    HEALTHY = "healthy"  # ratio > 0.7
+    RELAXED = "relaxed"  # ratio > 0.3
+    IDLE = "idle"  # ratio <= 0.3
+
+
+class ProjectMemberRole(str, Enum):
+    """Role of a user within a project (v3.0 BR-PROJ)."""
+
+    MANAGER = "manager"
+    EMPLOYEE = "employee"
+
+
+class AssignmentAction(str, Enum):
+    """Actions recorded in task assignment history (v3.0)."""
+
+    STARTED = "started"
+    ABANDONED = "abandoned"
+    RESUMED = "resumed"
+    COMPLETED = "completed"
