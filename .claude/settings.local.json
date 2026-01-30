@@ -4,7 +4,13 @@
       "Bash(tree:*)",
       "Bash(dir:*)",
       "Bash(python -m pytest:*)",
-      "Bash(C:/Users/luish/Documents/planner/backend/.venv/Scripts/python.exe -m pytest:*)"
+      "Bash(C:/Users/luish/Documents/planner/backend/.venv/Scripts/python.exe -m pytest:*)",
+      "Bash(bash:*)",
+      "Bash(xargs:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(python -c:*)",
+      "Bash(python3:*)"
     ]
   }
 }
