@@ -1,1 +1,1 @@
-"""API layer - HTTP endpoints and DTOs."""
+"""API layer package."""

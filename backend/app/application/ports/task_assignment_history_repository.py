@@ -1,31 +1,17 @@
-"""Port for TaskAssignmentHistory repository (v3.0)."""
-from typing import List, Optional, Protocol
-from uuid import UUID
+"""TaskAssignmentHistory repository port."""
+from typing import Protocol, List
 
 from app.domain.models.task_assignment_history import TaskAssignmentHistory
+from app.domain.models.value_objects import TaskId
 
 
 class TaskAssignmentHistoryRepository(Protocol):
     """Repository interface for TaskAssignmentHistory entities."""
 
     def save(self, history: TaskAssignmentHistory) -> None:
-        """Persist an assignment history record (append-only)."""
+        """Persist a task assignment history record."""
         ...
 
-    def find_by_id(self, history_id: UUID) -> Optional[TaskAssignmentHistory]:
-        """Find an assignment history record by ID."""
-        ...
-
-    def find_by_task_id(self, task_id: UUID) -> List[TaskAssignmentHistory]:
-        """Find all assignment history for a task, ordered by created_at."""
-        ...
-
-    def find_by_user_id(self, user_id: UUID) -> List[TaskAssignmentHistory]:
-        """Find all assignment history for a user, ordered by created_at."""
-        ...
-
-    def find_by_task_and_user(
-        self, task_id: UUID, user_id: UUID
-    ) -> List[TaskAssignmentHistory]:
-        """Find assignment history for a specific task and user combination."""
+    def list_by_task(self, task_id: TaskId) -> List[TaskAssignmentHistory]:
+        """List assignment history for a task."""
         ...

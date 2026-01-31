@@ -1,26 +1,26 @@
 """Schedule history repository port."""
 from typing import Protocol, List
-from uuid import UUID
 
-from app.domain.models.schedule_history import ScheduleHistory
+from app.domain.models.project_schedule_history import ProjectScheduleHistory
+from app.domain.models.task_schedule_history import TaskScheduleHistory
+from app.domain.models.value_objects import ProjectId, TaskId
 
 
 class ScheduleHistoryRepository(Protocol):
-    """Repository interface for ScheduleHistory entities.
+    """Repository interface for schedule history entities."""
 
-    This repository is append-only (immutable records).
-    ScheduleHistory records NEVER change - new changes create new records.
-    """
-
-    def save(self, history: ScheduleHistory) -> None:
-        """Persist a schedule history record (immutable append-only)."""
+    def save_task_history(self, history: TaskScheduleHistory) -> None:
+        """Persist a task schedule history record."""
         ...
 
-    def find_by_task_id(self, task_id: UUID) -> List[ScheduleHistory]:
-        """Return all schedule history records for a task, ordered by created_at."""
+    def save_project_history(self, history: ProjectScheduleHistory) -> None:
+        """Persist a project schedule history record."""
         ...
 
-    def find_by_caused_by_task_id(self, caused_by_task_id: UUID) -> List[ScheduleHistory]:
-        """Return all schedule history records caused by a specific task."""
+    def list_task_history(self, task_id: TaskId) -> List[TaskScheduleHistory]:
+        """List schedule history for a task."""
         ...
 
+    def list_project_history(self, project_id: ProjectId) -> List[ProjectScheduleHistory]:
+        """List schedule history for a project."""
+        ...

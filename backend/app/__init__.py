@@ -1,1 +1,1 @@
-"""Planner Backend MVP - Phase 1"""
+"""Planner backend application package."""

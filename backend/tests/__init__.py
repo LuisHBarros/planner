@@ -1,1 +1,1 @@
-"""Test suite for Planner backend."""
+"""Test package root."""

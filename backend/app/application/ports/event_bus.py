@@ -1,14 +1,10 @@
-"""Event bus port interface."""
-from typing import Protocol, Type, Any, Callable
+"""Event bus port."""
+from typing import Protocol, Any
 
 
 class EventBus(Protocol):
-    """Event bus interface for domain events."""
-    
-    def subscribe(self, event_type: Type, handler: Callable) -> None:
-        """Subscribe a handler to an event type."""
-        ...
-    
+    """Event bus interface."""
+
     def emit(self, event: Any) -> None:
-        """Emit an event to all subscribed handlers."""
+        """Emit a domain event."""
         ...

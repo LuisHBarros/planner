@@ -1,1 +1,1 @@
-"""Application ports (interfaces)."""
+"""Ports (interfaces) package."""

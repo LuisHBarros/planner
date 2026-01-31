@@ -1,1 +1,1 @@
-"""Infrastructure layer - external concerns."""
+"""Infrastructure layer package."""

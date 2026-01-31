@@ -1,1 +1,1 @@
-"""Use cases."""
+"""Use cases package."""

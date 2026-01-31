@@ -1,49 +1,30 @@
 """Role domain model."""
-from datetime import datetime, UTC
+from dataclasses import dataclass, field
 from typing import Optional
-from uuid import UUID, uuid4
 
-from app.domain.models.enums import RoleLevel
+from app.domain.models.value_objects import ProjectId, RoleId, UtcDateTime
 
 
+@dataclass
 class Role:
-    """Role entity - defines responsibilities within a team."""
-
-    def __init__(
-        self,
-        id: UUID,
-        team_id: UUID,
-        name: str,
-        level: RoleLevel,
-        base_capacity: int,
-        description: Optional[str] = None,
-        created_at: Optional[datetime] = None,
-    ):
-        self.id = id
-        self.team_id = team_id
-        self.name = name
-        self.level = level
-        self.base_capacity = base_capacity
-        self.description = description
-        self.created_at = created_at or datetime.now(UTC)
+    """Role within a project."""
+    id: RoleId
+    project_id: ProjectId
+    name: str
+    description: Optional[str]
+    created_at: UtcDateTime = field(default_factory=UtcDateTime.now)
 
     @classmethod
     def create(
         cls,
-        team_id: UUID,
+        project_id: ProjectId,
         name: str,
-        level: RoleLevel,
-        base_capacity: int,
         description: Optional[str] = None,
     ) -> "Role":
         """Create a new role."""
-        if base_capacity < 1:
-            raise ValueError("base_capacity must be at least 1")
         return cls(
-            id=uuid4(),
-            team_id=team_id,
-            name=name,
-            level=level,
-            base_capacity=base_capacity,
+            id=RoleId(),
+            project_id=project_id,
+            name=name.strip(),
             description=description,
         )

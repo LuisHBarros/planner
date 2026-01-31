@@ -1,39 +1,29 @@
-"""Port for ProjectMember repository (v3.0)."""
-from typing import List, Optional, Protocol
-from uuid import UUID
+"""ProjectMember repository port."""
+from typing import Protocol, Optional, List
 
 from app.domain.models.project_member import ProjectMember
+from app.domain.models.value_objects import ProjectId, ProjectMemberId, UserId
 
 
 class ProjectMemberRepository(Protocol):
     """Repository interface for ProjectMember entities."""
 
-    def save(self, project_member: ProjectMember) -> None:
+    def save(self, member: ProjectMember) -> None:
         """Persist a project member."""
         ...
 
-    def find_by_id(self, project_member_id: UUID) -> Optional[ProjectMember]:
-        """Find a project member by ID."""
+    def find_by_id(self, member_id: ProjectMemberId) -> Optional[ProjectMember]:
+        """Find project member by ID."""
         ...
 
-    def find_by_project_id(self, project_id: UUID) -> List[ProjectMember]:
-        """Find all members of a project."""
-        ...
-
-    def find_by_user_id(self, user_id: UUID) -> List[ProjectMember]:
-        """Find all project memberships for a user."""
+    def list_by_project(self, project_id: ProjectId) -> List[ProjectMember]:
+        """List members in a project."""
         ...
 
     def find_by_project_and_user(
-        self, project_id: UUID, user_id: UUID
+        self,
+        project_id: ProjectId,
+        user_id: UserId,
     ) -> Optional[ProjectMember]:
-        """Find a specific user's membership in a project."""
-        ...
-
-    def find_active_by_project_id(self, project_id: UUID) -> List[ProjectMember]:
-        """Find all active members of a project."""
-        ...
-
-    def delete(self, project_member_id: UUID) -> None:
-        """Delete a project member."""
+        """Find a member by project and user."""
         ...

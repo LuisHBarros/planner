@@ -1,1 +1,1 @@
-"""Domain events."""
+"""Application events package."""

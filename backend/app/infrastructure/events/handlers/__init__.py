@@ -1,1 +1,1 @@
-"""Event handlers."""
+"""Event handlers package."""

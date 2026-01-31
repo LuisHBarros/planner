@@ -1,96 +1,56 @@
-"""Domain enums."""
+"""Domain enums per BUSINESS_RULES.md Section 2.2."""
 from enum import Enum
 
 
-class TaskStatus(str, Enum):
-    """Task status enum (BR-004)."""
-    TODO = "todo"
-    DOING = "doing"
-    BLOCKED = "blocked"
-    DONE = "done"
-    CANCELLED = "cancelled"  # Terminal state (v3.0)
-
-
-class TaskPriority(str, Enum):
-    """Task priority enum."""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
-class RoleLevel(str, Enum):
-    """Role level enum."""
+class MemberLevel(str, Enum):
+    """Seniority level within a role."""
     JUNIOR = "junior"
     MID = "mid"
     SENIOR = "senior"
-    LEAD = "lead"
     SPECIALIST = "specialist"
+    LEAD = "lead"
+
+
+class TaskStatus(str, Enum):
+    """Task status per BR-TASK-003."""
+    TODO = "todo"
+    BLOCKED = "blocked"
+    DOING = "doing"
+    DONE = "done"
+    CANCELLED = "cancelled"
 
 
 class ProjectStatus(str, Enum):
-    """Project status enum."""
+    """Project status."""
     ACTIVE = "active"
+    COMPLETED = "completed"
     ARCHIVED = "archived"
 
 
-class CompanyPlan(str, Enum):
-    """Company plan enum."""
-    FREE = "free"
-    PRO = "pro"
-    ENTERPRISE = "enterprise"
+class InviteStatus(str, Enum):
+    """Invite status per BR-INV-004."""
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
 
 
-class DependencyType(str, Enum):
-    """Task dependency type enum."""
-    BLOCKS = "blocks"
-    RELATES_TO = "relates_to"
-
-
-class NoteType(str, Enum):
-    """Note type enum."""
-    COMMENT = "comment"
-    STATUS_CHANGE = "status_change"
-    ASSIGNMENT = "assignment"
-    BLOCKER = "blocker"
-    SYSTEM = "system"
-
-
-class CompletionSource(str, Enum):
-    """Task completion percentage source."""
+class ProgressSource(str, Enum):
+    """Source of progress update per BR-LLM."""
     MANUAL = "manual"
-    AI = "ai"
-
-
-class ScheduleChangeReason(str, Enum):
-    """Reason for a schedule change in ScheduleHistory."""
-
-    DEPENDENCY_DELAY = "dependency_delay"
-    MANUAL_OVERRIDE = "manual_override"
-    SCOPE_CHANGE = "scope_change"
-    ESTIMATION_ERROR = "estimation_error"
-
-
-class TeamMemberRole(str, Enum):
-    """Role of a user within a team (Spec 3.0)."""
-
-    MANAGER = "manager"
-    BACKEND = "backend"
-    MEMBER = "member"
+    LLM = "llm"
 
 
 class AbandonmentType(str, Enum):
-    """Type of task abandonment (v3.0 BR-ASSIGN)."""
-
-    VOLUNTARY = "voluntary"  # Employee abandons their own task
-    FIRED_FROM_TASK = "fired_from_task"  # Manager removes employee from task
-    FIRED_FROM_PROJECT = "fired_from_project"  # Manager fires employee (abandons all tasks)
-    RESIGNED = "resigned"  # Employee resigns (abandons all tasks)
-    TASK_CANCELLED = "task_cancelled"  # Task was cancelled while in progress
+    """Type of task abandonment per BR-ABANDON-001."""
+    VOLUNTARY = "voluntary"
+    FIRED_FROM_TASK = "fired_from_task"
+    FIRED_FROM_PROJECT = "fired_from_project"
+    RESIGNED = "resigned"
+    TASK_CANCELLED = "task_cancelled"
 
 
 class WorkloadStatus(str, Enum):
-    """Workload status for an individual (v3.0 BR-WORK)."""
-
+    """Workload status per BR-WORK-002."""
     IMPOSSIBLE = "impossible"  # ratio > 1.5
     TIGHT = "tight"  # ratio > 1.2
     HEALTHY = "healthy"  # ratio > 0.7
@@ -98,17 +58,15 @@ class WorkloadStatus(str, Enum):
     IDLE = "idle"  # ratio <= 0.3
 
 
-class ProjectMemberRole(str, Enum):
-    """Role of a user within a project (v3.0 BR-PROJ)."""
+class ScheduleChangeReason(str, Enum):
+    """Reason for schedule change per BR-SCHED."""
+    DEPENDENCY_DELAY = "dependency_delay"
+    DEPENDENCY_EARLY = "dependency_early"
+    MANUAL_OVERRIDE = "manual_override"
+    TASK_COMPLETED = "task_completed"
+    TASK_CANCELLED = "task_cancelled"
 
-    MANAGER = "manager"
-    EMPLOYEE = "employee"
 
-
-class AssignmentAction(str, Enum):
-    """Actions recorded in task assignment history (v3.0)."""
-
-    STARTED = "started"
-    ABANDONED = "abandoned"
-    RESUMED = "resumed"
-    COMPLETED = "completed"
+class DependencyType(str, Enum):
+    """Task dependency type - MVP only supports finish_to_start."""
+    FINISH_TO_START = "finish_to_start"

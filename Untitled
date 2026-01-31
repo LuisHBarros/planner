@@ -1,0 +1,1475 @@
+# Planner Multiplayer - Business Rules Specification
+
+**Version:** 3.0  
+**Status:** FINAL  
+**Last Updated:** January 2025
+
+---
+
+## Table of Contents
+
+1. [Domain Overview](#1-domain-overview)
+2. [Entity Model](#2-entity-model)
+3. [Authentication Rules](#3-authentication-rules)
+4. [Project Rules](#4-project-rules)
+5. [Invitation Rules](#5-invitation-rules)
+6. [Role Rules](#6-role-rules)
+7. [Task Rules](#7-task-rules)
+8. [Task Assignment Rules](#8-task-assignment-rules)
+9. [Task Dependency Rules](#9-task-dependency-rules)
+10. [Task Abandonment Rules](#10-task-abandonment-rules)
+11. [Employee Management Rules](#11-employee-management-rules)
+12. [Schedule Propagation Rules](#12-schedule-propagation-rules)
+13. [Workload Calculation Rules](#13-workload-calculation-rules)
+14. [LLM Integration Rules](#14-llm-integration-rules)
+15. [Visibility Rules](#15-visibility-rules)
+16. [Manual Schedule Override Rules](#16-manual-schedule-override-rules)
+17. [Role Migration Rules](#17-role-migration-rules)
+18. [LLM Progress Precedence Rules](#18-llm-progress-precedence-rules)
+19. [Notification Rules](#19-notification-rules)
+
+---
+
+## 1. Domain Overview
+
+### 1.1 System Purpose
+
+Planner Multiplayer is a **task coordination system** (not just a task list) that answers:
+- "What should I work on next?"
+- "Who is responsible for this?"
+- "Why are we blocked/delayed?"
+- "What caused this delay?"
+
+### 1.2 Core Hierarchy
+
+```
+User
+ └── Creates/Joins Projects
+        └── ProjectMember (one role per project per user)
+               └── Tasks (assigned based on role compatibility)
+                      ├── TaskReports (work logs)
+                      ├── TaskDependencies (parent-child relationships)
+                      └── TaskAssignmentHistory (who worked on it)
+```
+
+### 1.3 Key Actors
+
+| Actor | Description |
+|-------|-------------|
+| **Visitor** | Unauthenticated user |
+| **User** | Authenticated user (registered via magic link) |
+| **Manager** | User who created a project (management only, no tasks) |
+| **Employee** | User who joined a project via invitation (executes tasks) |
+
+---
+
+## 2. Entity Model
+
+### 2.1 Core Entities
+
+```
+User
+├── id: UUID
+├── email: string (unique)
+├── name: string
+└── created_at: datetime
+
+Project
+├── id: UUID
+├── name: string
+├── description: string?
+├── created_by: UUID (FK → User) [Manager]
+├── expected_end_date: datetime
+├── status: ProjectStatus (ACTIVE, COMPLETED, ARCHIVED)
+├── llm_enabled: boolean
+├── llm_provider: string?
+├── llm_api_key: string? (encrypted)
+└── created_at: datetime
+
+ProjectMember
+├── id: UUID
+├── project_id: UUID (FK → Project)
+├── user_id: UUID (FK → User)
+├── role_id: UUID (FK → Role)
+├── level: MemberLevel (JUNIOR, MID, SENIOR, SPECIALIST, LEAD)
+├── is_manager: boolean
+├── is_active: boolean
+├── joined_at: datetime
+└── left_at: datetime?
+UNIQUE(project_id, user_id)
+
+Role (created by Manager per Project)
+├── id: UUID
+├── project_id: UUID (FK → Project)
+├── name: string ("Backend", "Frontend", etc.)
+├── description: string?
+├── base_capacity: integer (recommended simultaneous tasks)
+└── created_at: datetime
+UNIQUE(project_id, name)
+
+Task
+├── id: UUID
+├── project_id: UUID (FK → Project)
+├── title: string
+├── description: string
+├── required_role_id: UUID (FK → Role)
+├── difficulty: integer? (1-10, null until set)
+├── status: TaskStatus (TODO, BLOCKED, DOING, DONE, CANCELLED)
+├── assigned_to: UUID? (FK → ProjectMember)
+├── progress: integer (0-100)
+├── progress_source: ProgressSource? (MANUAL, LLM)
+├── expected_start_date: datetime
+├── expected_end_date: datetime
+├── actual_start_date: datetime?
+├── actual_end_date: datetime?
+├── is_delayed: boolean
+├── cancelled_at: datetime?
+├── cancelled_by: UUID? (FK → User)
+└── created_at: datetime
+
+TaskDependency
+├── id: UUID
+├── task_id: UUID (FK → Task) [child]
+├── depends_on_task_id: UUID (FK → Task) [parent]
+└── created_at: datetime
+UNIQUE(task_id, depends_on_task_id)
+
+TaskReport
+├── id: UUID
+├── task_id: UUID (FK → Task)
+├── author_id: UUID (FK → User)
+├── content: text
+├── progress_snapshot: integer? (progress at time of report)
+└── created_at: datetime
+
+TaskAssignmentHistory
+├── id: UUID
+├── task_id: UUID (FK → Task)
+├── user_id: UUID (FK → User)
+├── assigned_at: datetime
+├── unassigned_at: datetime?
+├── unassignment_type: UnassignmentType?
+└── completed: boolean
+
+TaskAbandonment
+├── id: UUID
+├── task_id: UUID (FK → Task)
+├── user_id: UUID (FK → User)
+├── type: AbandonmentType
+├── initiated_by: UUID (FK → User)
+├── reason: string?
+└── created_at: datetime
+
+ProjectInvite
+├── id: UUID
+├── project_id: UUID (FK → Project)
+├── email: string (target email, for tracking)
+├── role_id: UUID (FK → Role)
+├── level: MemberLevel
+├── token: string (unique)
+├── status: InviteStatus (PENDING, ACCEPTED, EXPIRED)
+├── created_by: UUID (FK → User)
+├── expires_at: datetime
+├── accepted_by: UUID? (FK → User)
+└── accepted_at: datetime?
+
+ProjectScheduleHistory
+├── id: UUID
+├── project_id: UUID (FK → Project)
+├── old_expected_end: datetime
+├── new_expected_end: datetime
+├── reason: string
+└── created_at: datetime
+
+TaskScheduleHistory
+├── id: UUID
+├── task_id: UUID (FK → Task)
+├── old_expected_start: datetime?
+├── old_expected_end: datetime?
+├── new_expected_start: datetime?
+├── new_expected_end: datetime?
+├── reason: ScheduleChangeReason
+├── caused_by_task_id: UUID?
+├── changed_by_user_id: UUID? (for manual overrides)
+└── created_at: datetime
+
+NotificationPreference
+├── id: UUID
+├── user_id: UUID (FK → User)
+├── email_enabled: boolean (default: true)
+├── toast_enabled: boolean (default: true)
+├── daily_report_time: time (default: 08:00)
+└── updated_at: datetime
+```
+
+### 2.2 Enums
+
+```
+MemberLevel: JUNIOR, MID, SENIOR, SPECIALIST, LEAD
+
+TaskStatus: TODO, BLOCKED, DOING, DONE, CANCELLED
+
+ProjectStatus: ACTIVE, COMPLETED, ARCHIVED
+
+InviteStatus: PENDING, ACCEPTED, EXPIRED
+
+ProgressSource: MANUAL, LLM
+
+AbandonmentType:
+  - VOLUNTARY (employee quit the task)
+  - FIRED_FROM_TASK (manager removed from specific task)
+  - FIRED_FROM_PROJECT (manager fired from project)
+  - RESIGNED (employee resigned from project)
+  - TASK_CANCELLED (manager cancelled the task)
+
+UnassignmentType:
+  - VOLUNTARY
+  - FIRED_FROM_TASK
+  - FIRED_FROM_PROJECT
+  - RESIGNED
+  - TASK_CANCELLED
+  - COMPLETED
+
+ScheduleChangeReason:
+  - DEPENDENCY_DELAY
+  - DEPENDENCY_EARLY
+  - MANUAL_OVERRIDE
+  - TASK_COMPLETED
+  - TASK_CANCELLED
+
+WorkloadStatus: IMPOSSIBLE, TIGHT, HEALTHY, RELAXED, IDLE
+```
+
+---
+
+## 3. Authentication Rules
+
+### BR-AUTH-001: Registration via Magic Link
+- Users register by providing an email address
+- System sends a magic link to the email
+- Clicking the link creates the account and authenticates the user
+- Magic link tokens expire after 15 minutes
+- Magic link tokens are single-use
+
+### BR-AUTH-002: Login via Magic Link
+- Registered users login by providing their email
+- System sends a magic link to the email
+- Clicking the link authenticates the user
+- No passwords are stored in the system
+
+### BR-AUTH-003: Email Uniqueness
+- Each email address can only be associated with one User account
+- Email comparison is case-insensitive
+
+---
+
+## 4. Project Rules
+
+### BR-PROJ-001: Project Creation
+- Any authenticated User can create a Project
+- The creator automatically becomes the Manager of that Project
+- A ProjectMember record is created with `is_manager = true`
+
+### BR-PROJ-002: Manager Role
+- Manager is determined by who created the project (`Project.created_by`)
+- **Manager CANNOT execute tasks** - management only
+- Manager can: create roles, create tasks, invite members, manage dependencies
+- There is exactly ONE manager per project (the creator)
+
+### BR-PROJ-003: Project Expected End Date
+- Set at project creation
+- Automatically recalculated when task schedules change
+- Historical changes are tracked in `ProjectScheduleHistory`
+
+### BR-PROJ-004: Multiple Projects
+- A User can be Manager of multiple Projects
+- A User can be Employee in multiple Projects simultaneously
+- A User can be Manager in one Project and Employee in another
+
+---
+
+## 5. Invitation Rules
+
+### BR-INV-001: Invite Creation
+- Only Manager can create invitations for their project
+- Invite specifies: target email, role, and level
+- System generates a unique token (magic link)
+- Invite expires after 7 days (configurable)
+
+### BR-INV-002: Invite Target Email
+- The email field is for **tracking purposes only**
+- Any user can accept the invite, not just the target email
+- This allows flexibility if the invite is forwarded
+
+### BR-INV-003: Invite Acceptance
+- Invite can only be accepted ONCE (`status = ACCEPTED`)
+- If user is not authenticated: must register/login first via magic link
+- If user is already a member of the project: ERROR "You are already a member of this project"
+- Upon acceptance: creates ProjectMember with specified role and level
+
+### BR-INV-004: Invite Status Transitions
+```
+PENDING → ACCEPTED (when someone accepts)
+PENDING → EXPIRED (when expires_at passes)
+```
+- ACCEPTED and EXPIRED are terminal states
+
+### BR-INV-005: One Role Per Project Per User
+- A user can only have ONE role in a single project
+- Constraint: `UNIQUE(project_id, user_id)` on ProjectMember
+- If user tries to accept invite for project they're already in: ERROR
+
+### BR-INV-006: Expired/Accepted Invite Access
+- Accessing an ACCEPTED invite shows: "This position has been filled"
+- Accessing an EXPIRED invite shows: "This invitation has expired"
+
+---
+
+## 6. Role Rules
+
+### BR-ROLE-001: Role Creation
+- Only Manager can create Roles in their project
+- Role name must be unique within the project
+- Examples: "Backend", "Frontend", "Designer", "QA"
+
+### BR-ROLE-002: Role Immutability on Tasks
+- Once a Task is created with a `required_role_id`, it CANNOT be changed
+- This ensures consistency in task assignment
+
+### BR-ROLE-003: Multiple Members Same Role
+- Multiple ProjectMembers can have the same Role
+- Example: 3 "Backend" developers in the same project
+
+### BR-ROLE-004: Role Base Capacity
+- Each Role has a `base_capacity` (recommended simultaneous tasks)
+- Used in workload calculations
+- Can be adjusted by Manager
+
+---
+
+## 7. Task Rules
+
+### BR-TASK-001: Task Creation
+- Only Manager can create Tasks
+- Task is created with `status = TODO`
+- Task requires: title, description, required_role, expected dates
+
+### BR-TASK-002: Task Difficulty
+- Difficulty is a value from 1-10
+- Difficulty can be set manually by Manager OR calculated by LLM
+- **Task cannot be selected by Employee until difficulty is set**
+- `difficulty = null` means not yet defined
+
+### BR-TASK-003: Task Status Transitions
+```
+TODO → DOING (when Employee selects task)
+TODO → BLOCKED (when dependency is added with incomplete parent)
+TODO → CANCELLED (when Manager cancels)
+
+BLOCKED → TODO (when all parent dependencies are DONE)
+BLOCKED → CANCELLED (when Manager cancels)
+
+DOING → DONE (when Employee completes)
+DOING → TODO (when Employee abandons - creates abandonment record)
+DOING → CANCELLED (when Manager cancels - creates abandonment record)
+
+DONE → (terminal, no transitions)
+CANCELLED → (terminal, no transitions)
+```
+
+### BR-TASK-004: Task Cancellation
+- Only Manager can cancel a Task
+- Cancellation is **PERMANENT** - task cannot be reactivated
+- If task was DOING: creates TaskAbandonment with type `TASK_CANCELLED`
+- Task data is preserved for historical purposes (not deleted)
+- Cancelled tasks are immutable - no further changes allowed
+- Dependencies to cancelled tasks remain (for history) but are not enforced
+
+### BR-TASK-005: Task Progress
+- Progress is 0-100 percentage
+- Can be updated manually by Employee
+- Can be calculated by LLM based on TaskReports
+- `progress_source` indicates how it was determined
+- Completion (DONE) automatically sets progress to 100
+
+### BR-TASK-006: Task Dates
+| Field | Description | Mutable? |
+|-------|-------------|----------|
+| expected_start_date | Planned start | Yes (propagation or manual) |
+| expected_end_date | Planned end | Yes (propagation or manual) |
+| actual_start_date | When work actually started | Set once, preserved through abandonment |
+| actual_end_date | When work actually completed | Set once when DONE |
+
+### BR-TASK-007: Task Required Role Immutability
+- `required_role_id` cannot be changed after task creation
+- Ensures assignment consistency
+
+---
+
+## 8. Task Assignment Rules
+
+### BR-ASSIGN-001: Role Compatibility
+- Employee can only select Tasks where `Task.required_role_id` matches their `ProjectMember.role_id`
+- Example: Backend developer cannot select Frontend tasks
+
+### BR-ASSIGN-002: Task Availability
+To select a task, ALL conditions must be met:
+- Task.status = TODO (not BLOCKED, DOING, DONE, or CANCELLED)
+- Task.difficulty is not null (difficulty must be defined)
+- Task.assigned_to is null (not already assigned)
+- Employee.role matches Task.required_role
+
+### BR-ASSIGN-003: Workload Check
+- Before assigning task, system simulates new workload
+- If Employee would become `IMPOSSIBLE` status: **BLOCK the assignment**
+- Employee must complete or abandon other tasks first
+
+### BR-ASSIGN-004: Assignment Effects
+When Employee selects a Task:
+- Task.assigned_to = Employee's ProjectMember.id
+- Task.status = DOING
+- Task.actual_start_date = now() (only if null - preserve if reassignment)
+- Create TaskAssignmentHistory record
+- Recalculate Employee workload
+
+### BR-ASSIGN-005: Assignment History
+- Every assignment creates a `TaskAssignmentHistory` record
+- Records: who, when assigned, when unassigned, how unassigned, if completed
+- Provides full audit trail: "Started by João, abandoned, resumed by Maria, completed"
+
+### BR-ASSIGN-006: Reassignment After Abandonment
+- When a task is abandoned (any type), it returns to TODO
+- actual_start_date is PRESERVED (not reset)
+- New Employee selecting the task creates new AssignmentHistory
+- Task shows complete timeline of all assignments
+
+---
+
+## 9. Task Dependency Rules
+
+### BR-DEP-001: Dependency Type
+- Only **Finish-to-Start** dependencies supported
+- Child task can only start when ALL parent tasks are DONE
+
+### BR-DEP-002: Dependency Creation
+- Only Manager can add/remove dependencies
+- Cannot create self-dependency (task depending on itself)
+- Cannot create circular dependencies (A→B→C→A)
+
+### BR-DEP-003: Auto-Blocking
+- When dependency is added and parent is not DONE:
+  - Child task status → BLOCKED
+  - Child task cannot be selected
+
+### BR-DEP-004: Auto-Unblocking
+- When parent task becomes DONE:
+  - System checks ALL parents of child
+  - If ALL parents are DONE: child status → TODO
+  - If ANY parent is not DONE: child remains BLOCKED
+
+### BR-DEP-005: Dependency Modification
+- Manager can add/remove dependencies for tasks in TODO, BLOCKED, or DOING status
+- **Cannot modify dependencies of DONE or CANCELLED tasks**
+- Removing a dependency may trigger auto-unblocking
+
+### BR-DEP-006: Cancelled Parent Handling
+- If parent task is CANCELLED, child remains BLOCKED
+- Manager must manually remove the dependency to unblock
+- This is intentional: cancelled tasks might be replaced
+
+### BR-DEP-007: Dependency on Cancelled Tasks
+- Dependencies pointing to CANCELLED tasks are preserved (for history)
+- They continue to block children until explicitly removed
+- Manager receives alert about orphaned blocked tasks
+
+---
+
+## 10. Task Abandonment Rules
+
+### BR-ABANDON-001: Abandonment Types
+
+| Type | Trigger | Initiated By |
+|------|---------|--------------|
+| VOLUNTARY | Employee quits task | Employee |
+| FIRED_FROM_TASK | Manager removes employee from specific task | Manager |
+| FIRED_FROM_PROJECT | Manager fires employee from project | Manager |
+| RESIGNED | Employee resigns from project | Employee |
+| TASK_CANCELLED | Manager cancels the task | Manager |
+
+### BR-ABANDON-002: Voluntary Abandonment
+- Employee can abandon any task assigned to them
+- Creates TaskAbandonment with type = VOLUNTARY
+- Task status → TODO (available for others)
+- Reason is optional
+
+### BR-ABANDON-003: Manager Removes from Task
+- Manager can remove any Employee from any task
+- Creates TaskAbandonment with type = FIRED_FROM_TASK
+- Task status → TODO
+- initiated_by = Manager's user_id
+
+### BR-ABANDON-004: Manager Fires Employee
+- Manager can fire Employee from the entire project
+- ProjectMember.is_active = false, left_at = now()
+- ALL tasks assigned to Employee:
+  - Create TaskAbandonment with type = FIRED_FROM_PROJECT
+  - Task status → TODO
+- Employee loses project access immediately
+- Historical data (reports, assignments) is preserved
+
+### BR-ABANDON-005: Employee Resigns
+- Employee can resign from a project at any time
+- **Must provide a reason** (required field)
+- ProjectMember.is_active = false, left_at = now()
+- ALL tasks assigned to Employee:
+  - Create TaskAbandonment with type = RESIGNED
+  - Task status → TODO
+- Employee loses project access immediately
+
+### BR-ABANDON-006: Task Cancellation Abandonment
+- When Manager cancels a task that was DOING:
+- Creates TaskAbandonment with type = TASK_CANCELLED
+- Task status → CANCELLED (not TODO)
+
+### BR-ABANDON-007: Reinvitation
+- Fired or resigned employees can be invited again
+- They would join as a new ProjectMember (new record)
+- Previous membership history is preserved
+
+### BR-ABANDON-008: Abandonment History Preservation
+- TaskAbandonment records are NEVER deleted
+- Provides complete audit trail of task lifecycle
+
+---
+
+## 11. Employee Management Rules
+
+### BR-EMP-001: Employee Access
+- Employee can only access projects where they are an active member
+- `ProjectMember.is_active = true`
+
+### BR-EMP-002: Employee Capabilities
+Employees CAN:
+- View project tasks (filtered by visibility rules)
+- Select tasks matching their role
+- Abandon their own tasks
+- Add reports to their tasks
+- Update progress on their tasks
+- Complete their tasks
+- Resign from project
+- View team members (limited info)
+
+Employees CANNOT:
+- Create tasks
+- Create roles
+- Invite members
+- Modify dependencies
+- Cancel tasks
+- Fire other employees
+- See workload details of others
+
+### BR-EMP-003: Manager Capabilities
+Managers CAN do everything Employees can, PLUS:
+- Create roles
+- Create tasks
+- Set task difficulty
+- Create invitations
+- Add/remove dependencies
+- Cancel tasks
+- Fire employees
+- Remove employees from tasks
+- See full workload details of all employees
+
+Managers CANNOT:
+- Execute tasks (select tasks for themselves)
+
+---
+
+## 12. Schedule Propagation Rules
+
+### BR-SCHED-001: Delay Detection
+- When task is completed (DONE):
+- Compare actual_end_date vs expected_end_date
+- If actual > expected: task is DELAYED
+- If actual < expected: task is EARLY
+- If actual = expected: on time
+
+### BR-SCHED-002: Propagation to Children
+When a task completes (early or late):
+1. Find all direct children (tasks that depend on this one)
+2. For each child, find ALL parents
+3. Calculate: `new_start = MAX(actual_end or expected_end of all parents) + 1 day`
+4. Calculate: `new_end = new_start + original_duration`
+5. If dates changed: create TaskScheduleHistory
+6. Propagate recursively to grandchildren
+
+### BR-SCHED-003: Multiple Parents (MAX Rule)
+```
+Example: A→D, B→D, C→D (D depends on A, B, C)
+
+Parent completion dates:
+  A: Jan 30 (completed early)
+  B: Jan 29 (completed late)
+  C: Jan 28 (not yet completed, using expected)
+
+D.new_expected_start = MAX(Jan 30, Jan 29, Jan 28) + 1 = Jan 31
+```
+
+### BR-SCHED-004: Duration Preservation
+- When propagating, preserve original task duration
+- `duration = expected_end - expected_start`
+- New end = new start + duration
+
+### BR-SCHED-005: Respect Task Lifecycle
+When propagating to a child task:
+- If child is DONE: skip (actual dates are immutable)
+- If child has actual_start_date: only shift expected_end
+- If child not started: shift both expected_start and expected_end
+
+### BR-SCHED-006: Project Date Update
+- After propagation, find all "leaf" tasks (no children)
+- Project.expected_end_date = MAX(expected_end of all leaves)
+- Create ProjectScheduleHistory if changed
+
+### BR-SCHED-007: Schedule History
+- Every schedule change creates a history record
+- Records: old dates, new dates, reason, caused_by_task
+- History is immutable (append-only)
+
+---
+
+## 13. Workload Calculation Rules
+
+### BR-WORK-001: Workload Formula
+```
+workload_score = SUM(task.difficulty for all DOING tasks)
+capacity = role.base_capacity * level_multiplier
+
+level_multiplier:
+  JUNIOR = 0.6
+  MID = 1.0
+  SENIOR = 1.3
+  SPECIALIST = 1.2
+  LEAD = 1.1
+```
+
+### BR-WORK-002: Workload Status Thresholds
+```
+ratio = workload_score / capacity
+
+IMPOSSIBLE: ratio > 1.5 (severely overloaded)
+TIGHT:      ratio > 1.2 (at limit)
+HEALTHY:    ratio > 0.7 (adequate)
+RELAXED:    ratio > 0.3 (comfortable)
+IDLE:       ratio <= 0.3 (underutilized)
+```
+
+### BR-WORK-003: Assignment Blocking
+- Before assigning a task, calculate projected workload
+- If projected status would be IMPOSSIBLE: **BLOCK the assignment**
+- Return error: "You are overloaded. Complete or abandon tasks first."
+
+### BR-WORK-004: Workload Visibility
+- Employee can see their OWN workload status
+- Manager can see ALL employees' workload status
+- Employee CANNOT see other employees' workload details
+
+---
+
+## 14. LLM Integration Rules
+
+### BR-LLM-001: Optional Integration
+- LLM integration is **completely optional**
+- ALL features have manual fallbacks
+- Project works fully without LLM configured
+
+### BR-LLM-002: LLM Configuration
+- Manager configures LLM at project level
+- Required: provider, API key
+- API key must be stored **encrypted**
+- System validates API key before saving (test call)
+
+### BR-LLM-003: LLM for Difficulty
+- If LLM configured: Manager can request difficulty calculation
+- LLM receives: task title, description, project context
+- LLM returns: difficulty score (1-10)
+- Manager can override LLM suggestion
+
+### BR-LLM-004: LLM for Progress
+- If LLM configured: progress is auto-calculated after each report
+- LLM receives: task description, all reports
+- LLM returns: estimated progress (0-100%)
+- Employee can override with manual progress
+
+### BR-LLM-005: LLM Fallback
+- If LLM not configured:
+  - Difficulty: Manager must set manually
+  - Progress: Employee must set manually
+- If LLM call fails: fall back to manual
+
+---
+
+## 15. Visibility Rules
+
+### BR-VIS-001: Project Visibility
+- Users can only see projects where they are active members
+- Managers see all project details
+- Employees see project details except sensitive configs (API keys)
+
+### BR-VIS-002: Task Visibility
+- All project members can see all tasks in the project
+- Task details are visible to all members
+- Assignment history is visible to all members
+
+### BR-VIS-003: Team Visibility
+- **Manager**: sees all employees with full details (workload, tasks, status)
+- **Employee**: sees team list with basic info (name, role, level)
+- **Employee**: CANNOT see workload/status of other employees
+
+### BR-VIS-004: Report Visibility
+- All project members can see all task reports
+- Reports are part of project history
+
+---
+
+## 16. Manual Schedule Override Rules
+
+### BR-MANUAL-001: Manager Date Override
+- Manager can manually edit expected_start_date and expected_end_date of any task
+- Task must NOT be in DONE or CANCELLED status
+- Manual changes require a reason (for audit trail)
+
+### BR-MANUAL-002: Auto-Propagation on Manual Change
+- When Manager manually changes dates of a task in a dependency chain:
+- System **automatically triggers propagation** to all downstream tasks
+- Same propagation rules apply (BR-SCHED-002 through BR-SCHED-007)
+- Creates TaskScheduleHistory with reason = MANUAL_OVERRIDE
+
+### BR-MANUAL-003: Manual Override Audit
+- All manual date changes are recorded in TaskScheduleHistory
+- Records: who changed, old dates, new dates, reason provided
+- Provides accountability for schedule decisions
+
+---
+
+## 17. Role Migration Rules
+
+### BR-ROLE-005: Role Change Within Project
+- Manager can change an Employee's role within the same project
+- **Precondition:** Employee must NOT have any tasks in DOING status
+- If Employee has DOING tasks: ERROR "Employee must complete or abandon current tasks before role change"
+
+### BR-ROLE-006: Role Change Process
+1. Manager initiates role change for Employee
+2. System validates no DOING tasks assigned
+3. System updates ProjectMember.role_id to new role
+4. Employee can now select tasks of new role
+5. Historical assignments remain unchanged (audit trail)
+
+### BR-ROLE-007: Role Change and Blocked Tasks
+- If Employee had tasks in TODO that matched old role:
+- Those tasks remain in TODO (not affected)
+- Employee can no longer select them (role mismatch)
+
+---
+
+## 18. LLM Progress Precedence Rules
+
+### BR-LLM-006: DONE Status Precedence
+- When Employee marks task as DONE (100% complete):
+- Task.status = DONE is **absolute and final**
+- No subsequent LLM calculations can modify progress
+- LLM progress calculation is disabled for DONE tasks
+
+### BR-LLM-007: Manual Override Precedence
+- If Employee manually sets progress after LLM calculation:
+- Manual value takes precedence
+- progress_source changes to MANUAL
+- Next report will trigger new LLM calculation (if configured)
+
+### BR-LLM-008: Feedback Loop Prevention
+- LLM cannot reduce progress below manually set value
+- LLM cannot modify progress of DONE tasks
+- If LLM suggests lower progress than current: ignore suggestion
+
+---
+
+## 19. Notification Rules
+
+### BR-NOTIF-001: Manager Daily Report
+Manager receives a **daily email report** containing:
+- Tasks completed today (with early/late status)
+- Tasks currently delayed (actual progress behind expected)
+- Tasks completed ahead of schedule
+- Summary of project health
+
+### BR-NOTIF-002: Manager Workload Alerts (Trigger-based)
+Manager receives **immediate notification** when:
+- Any Employee reaches IMPOSSIBLE status (overloaded)
+- Any Employee reaches IDLE status (underutilized)
+- These are **real-time triggers**, not daily reports
+
+### BR-NOTIF-003: Employee New Task Toast
+- When new tasks become available (matching Employee's role):
+- Employee sees **in-app toast notification**
+- Toast shows: task title, difficulty, expected dates
+- Clicking toast navigates to task details
+
+### BR-NOTIF-004: Employee Daily Task Email
+Employee receives a **daily email** containing:
+- New tasks available for their role
+- Current tasks in progress (with deadlines)
+- Tasks approaching deadline
+
+### BR-NOTIF-005: Employee Project Deadline Warning
+- When project expected_end_date is **1 day away**:
+- All active Employees receive **email alert**
+- Alert contains: project name, deadline, their pending tasks
+- Sent once (not repeated)
+
+### BR-NOTIF-006: Notification Preferences
+- Users can configure notification preferences:
+  - Enable/disable email notifications
+  - Enable/disable in-app toasts
+  - Configure daily report time
+- Manager alerts (IMPOSSIBLE/IDLE) cannot be disabled
+
+---
+
+## Appendix A: Use Case Summary
+
+### Authentication
+| UC | Name | Actor |
+|----|------|-------|
+| UC-001 | Register via Magic Link | Visitor |
+| UC-002 | Login via Magic Link | User |
+
+### Project Management
+| UC | Name | Actor |
+|----|------|-------|
+| UC-010 | Create Project | User |
+| UC-011 | Configure LLM | Manager |
+| UC-012 | Create Role | Manager |
+| UC-013 | View Project | Member |
+
+### Invitations
+| UC | Name | Actor |
+|----|------|-------|
+| UC-020 | Create Invite | Manager |
+| UC-021 | View Invite | Anyone |
+| UC-022 | Accept Invite | User |
+
+### Task Management
+| UC | Name | Actor |
+|----|------|-------|
+| UC-030 | Create Task | Manager |
+| UC-031 | Set Difficulty (Manual) | Manager |
+| UC-032 | Calculate Difficulty (LLM) | Manager |
+| UC-033 | Add Dependency | Manager |
+| UC-034 | Remove Dependency | Manager |
+| UC-035 | Cancel Task | Manager |
+
+### Task Execution
+| UC | Name | Actor |
+|----|------|-------|
+| UC-040 | Select Task | Employee |
+| UC-041 | Abandon Task | Employee |
+| UC-042 | Add Report | Employee |
+| UC-043 | Calculate Progress (LLM) | System |
+| UC-044 | Update Progress (Manual) | Employee |
+| UC-045 | Complete Task | Employee |
+
+### Employee Management
+| UC | Name | Actor |
+|----|------|-------|
+| UC-050 | Remove from Task | Manager |
+| UC-051 | Fire Employee | Manager |
+| UC-052 | Resign from Project | Employee |
+| UC-053 | View Team | Member |
+| UC-054 | View Employee Workload | Manager |
+
+### Schedule
+| UC | Name | Actor |
+|----|------|-------|
+| UC-060 | Detect Delay/Early | System |
+| UC-061 | Propagate Schedule | System |
+| UC-062 | Update Project Date | System |
+| UC-063 | View Schedule History | Member |
+| UC-064 | Manual Date Override | Manager |
+
+### Role Management
+| UC | Name | Actor |
+|----|------|-------|
+| UC-070 | Change Employee Role | Manager |
+
+### Notifications
+| UC | Name | Actor |
+|----|------|-------|
+| UC-080 | Send Manager Daily Report | System |
+| UC-081 | Send Workload Alert | System |
+| UC-082 | Send New Task Toast | System |
+| UC-083 | Send Employee Daily Email | System |
+| UC-084 | Send Project Deadline Warning | System |
+
+---
+
+## Appendix B: State Diagrams
+
+### B.1 Task Status State Machine
+
+```
+                                    ┌────────────────────────────────────────────────────────────┐
+                                    │                      MANAGER ACTIONS                       │
+                                    └────────────────────────────────────────────────────────────┘
+                                                              │
+                                                              │ cancel
+                                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                 │
+│    ┌──────────────────┐         add dependency          ┌──────────────────┐                   │
+│    │                  │      (parent not DONE)          │                  │                   │
+│    │       TODO       │ ───────────────────────────────▶│     BLOCKED      │                   │
+│    │                  │                                 │                  │                   │
+│    │  (available for  │◀─────────────────────────────── │  (waiting for    │                   │
+│    │   selection)     │      all parents DONE           │   dependencies)  │                   │
+│    │                  │         (auto)                  │                  │                   │
+│    └────────┬─────────┘                                 └────────┬─────────┘                   │
+│             │                                                    │                             │
+│             │ employee selects                                   │ cancel                      │
+│             │ (role match + workload OK)                         │                             │
+│             ▼                                                    │                             │
+│    ┌──────────────────┐                                          │                             │
+│    │                  │                                          │                             │
+│    │      DOING       │──────────────────────────────────────────┼─────────────────────┐       │
+│    │                  │                                          │                     │       │
+│    │  (in progress)   │                                          │                     │       │
+│    │                  │                                          │                     │       │
+│    └──┬───────────┬───┘                                          │                     │       │
+│       │           │                                              │                     │       │
+│       │           │ employee completes                           │                     │       │
+│       │           │                                              │                     │       │
+│       │           ▼                                              │                     │       │
+│       │  ┌──────────────────┐                                    │                     │       │
+│       │  │                  │                                    │                     │       │
+│       │  │       DONE       │                                    │                     │       │
+│       │  │                  │                                    │                     │       │
+│       │  │   (completed)    │                                    │                     │       │
+│       │  │   [TERMINAL]     │                                    │                     │       │
+│       │  │                  │                                    │                     │       │
+│       │  └──────────────────┘                                    │                     │       │
+│       │                                                          │                     │       │
+│       │ abandon (voluntary/fired/resigned)                       │                     │       │
+│       │                                                          │                     │       │
+│       └──────────────────────────────────────────────────────────┼──┐                  │       │
+│                                                                  │  │                  │       │
+│                         ┌────────────────────────────────────────┘  │                  │       │
+│                         │                                           │                  │       │
+│                         ▼                                           ▼                  ▼       │
+│                ┌─────────────────────────────────────────────────────────────────────────┐     │
+│                │                                                                         │     │
+│                │                            CANCELLED                                    │     │
+│                │                                                                         │     │
+│                │                     (cancelled by manager)                              │     │
+│                │                          [TERMINAL]                                     │     │
+│                │                                                                         │     │
+│                │          - Immutable (no further changes allowed)                       │     │
+│                │          - Data preserved for history                                   │     │
+│                │          - Dependencies remain (blocking children)                      │     │
+│                │                                                                         │     │
+│                └─────────────────────────────────────────────────────────────────────────┘     │
+│                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+LEGEND:
+  ─────▶  User/System initiated transition
+  [TERMINAL]  No outgoing transitions allowed
+```
+
+### B.2 Task Assignment Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                              TASK ASSIGNMENT LIFECYCLE                                   │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+
+  UNASSIGNED                        ASSIGNED                           UNASSIGNED
+  (Task.assigned_to = null)         (Task.assigned_to = X)            (Task.assigned_to = null)
+       │                                   │                                 │
+       │                                   │                                 │
+       ▼                                   ▼                                 ▼
+┌──────────────┐                   ┌──────────────┐                  ┌──────────────┐
+│              │   Employee        │              │   Employee       │              │
+│     TODO     │   selects task    │    DOING     │   completes      │     DONE     │
+│              │ ─────────────────▶│              │ ────────────────▶│              │
+│              │                   │              │                  │              │
+└──────────────┘                   └──────┬───────┘                  └──────────────┘
+       ▲                                  │
+       │                                  │
+       │         ┌────────────────────────┼────────────────────────┐
+       │         │                        │                        │
+       │         │ VOLUNTARY              │ FIRED_FROM_TASK        │ FIRED_FROM_PROJECT
+       │         │ (employee abandons)    │ (manager removes)      │ or RESIGNED
+       │         │                        │                        │
+       │         ▼                        ▼                        ▼
+       │   ┌───────────┐           ┌───────────┐            ┌───────────┐
+       │   │           │           │           │            │           │
+       │   │ Abandon   │           │ Abandon   │            │ Abandon   │
+       │   │ Record    │           │ Record    │            │ Record    │
+       │   │ Created   │           │ Created   │            │ Created   │
+       │   │           │           │           │            │           │
+       │   └─────┬─────┘           └─────┬─────┘            └─────┬─────┘
+       │         │                       │                        │
+       └─────────┴───────────────────────┴────────────────────────┘
+                              │
+                              ▼
+                    ┌───────────────────┐
+                    │                   │
+                    │  Task returns to  │
+                    │       TODO        │
+                    │                   │
+                    │ actual_start_date │
+                    │    PRESERVED      │
+                    │                   │
+                    └───────────────────┘
+```
+
+### B.3 Invite Status State Machine
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           INVITATION LIFECYCLE                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                    Manager creates invite
+                    (role + level + email)
+                              │
+                              ▼
+                    ┌───────────────────┐
+                    │                   │
+                    │      PENDING      │
+                    │                   │
+                    │  - Token active   │
+                    │  - Waiting accept │
+                    │                   │
+                    └─────────┬─────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              │               │               │
+              │ User accepts  │               │ Time passes
+              │ (any user)    │               │ (expires_at reached)
+              │               │               │
+              ▼               │               ▼
+    ┌───────────────────┐     │     ┌───────────────────┐
+    │                   │     │     │                   │
+    │     ACCEPTED      │     │     │      EXPIRED      │
+    │                   │     │     │                   │
+    │   [TERMINAL]      │     │     │    [TERMINAL]     │
+    │                   │     │     │                   │
+    │ - User joined     │     │     │ - Link invalid    │
+    │ - ProjectMember   │     │     │ - Must create     │
+    │   created         │     │     │   new invite      │
+    │                   │     │     │                   │
+    └───────────────────┘     │     └───────────────────┘
+                              │
+                              │
+        ┌─────────────────────┴─────────────────────┐
+        │          ACCEPTANCE SCENARIOS             │
+        ├───────────────────────────────────────────┤
+        │                                           │
+        │  User NOT logged in + NOT registered:     │
+        │    → Register via magic link              │
+        │    → Auto-login                           │
+        │    → Create ProjectMember                 │
+        │                                           │
+        │  User NOT logged in + IS registered:      │
+        │    → Login via magic link                 │
+        │    → Create ProjectMember                 │
+        │                                           │
+        │  User IS logged in:                       │
+        │    → Check not already member             │
+        │    → Create ProjectMember                 │
+        │                                           │
+        │  User already in project:                 │
+        │    → ERROR: "Already a member"            │
+        │                                           │
+        └───────────────────────────────────────────┘
+```
+
+### B.4 ProjectMember Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PROJECT MEMBER LIFECYCLE                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                         User accepts invite
+                         OR creates project
+                                  │
+                                  ▼
+                        ┌───────────────────┐
+                        │                   │
+                        │      ACTIVE       │
+                        │                   │
+                        │  is_active: true  │
+                        │  left_at: null    │
+                        │                   │
+                        └─────────┬─────────┘
+                                  │
+                  ┌───────────────┼───────────────┐
+                  │               │               │
+                  │ Manager fires │               │ Employee resigns
+                  │               │               │ (must provide reason)
+                  │               │               │
+                  ▼               │               ▼
+        ┌───────────────────┐     │     ┌───────────────────┐
+        │                   │     │     │                   │
+        │  INACTIVE         │     │     │     INACTIVE      │
+        │  (fired)          │     │     │     (resigned)    │
+        │                   │     │     │                   │
+        │ is_active: false  │     │     │ is_active: false  │
+        │ left_at: now()    │     │     │ left_at: now()    │
+        │                   │     │     │                   │
+        └─────────┬─────────┘     │     └─────────┬─────────┘
+                  │               │               │
+                  │               │               │
+                  │    ┌──────────┴──────────┐    │
+                  │    │                     │    │
+                  │    │  CONSEQUENCES:      │    │
+                  │    │                     │    │
+                  │    │  - Loses access     │    │
+                  │    │  - All DOING tasks  │    │
+                  │    │    → abandoned      │    │
+                  │    │  - History kept     │    │
+                  │    │                     │    │
+                  │    └──────────┬──────────┘    │
+                  │               │               │
+                  └───────────────┼───────────────┘
+                                  │
+                                  │ Manager sends new invite
+                                  │ (can be re-invited)
+                                  │
+                                  ▼
+                        ┌───────────────────┐
+                        │                   │
+                        │   NEW ACTIVE      │
+                        │   MEMBERSHIP      │
+                        │                   │
+                        │ (new record,      │
+                        │  old preserved)   │
+                        │                   │
+                        └───────────────────┘
+```
+
+### B.5 Task Dependency and Blocking
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      DEPENDENCY & BLOCKING LOGIC                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+SCENARIO: Task D depends on A, B, and C
+
+            ┌─────────┐
+            │ Task A  │──────────┐
+            │  (TODO) │          │
+            └─────────┘          │
+                                 │
+            ┌─────────┐          │         ┌─────────┐
+            │ Task B  │──────────┼────────▶│ Task D  │
+            │  (DONE) │          │         │(BLOCKED)│
+            └─────────┘          │         └─────────┘
+                                 │
+            ┌─────────┐          │
+            │ Task C  │──────────┘
+            │  (DONE) │
+            └─────────┘
+
+D is BLOCKED because A is not DONE (even though B and C are DONE)
+
+───────────────────────────────────────────────────────────────────────────────
+
+WHEN A COMPLETES:
+
+            ┌─────────┐
+            │ Task A  │──────────┐
+            │  (DONE) │ ✓        │
+            └─────────┘          │
+                                 │         ┌─────────┐
+            ┌─────────┐          │         │ Task D  │
+            │ Task B  │──────────┼────────▶│  (TODO) │  ← AUTO-UNBLOCKED!
+            │  (DONE) │ ✓        │         │         │
+            └─────────┘          │         └─────────┘
+                                 │
+            ┌─────────┐          │
+            │ Task C  │──────────┘
+            │  (DONE) │ ✓
+            └─────────┘
+
+System checks: ALL parents DONE? YES → D becomes TODO
+
+───────────────────────────────────────────────────────────────────────────────
+
+WHEN A IS CANCELLED:
+
+            ┌───────────┐
+            │  Task A   │──────────┐
+            │(CANCELLED)│ ✗        │
+            └───────────┘          │
+                                   │         ┌─────────┐
+            ┌─────────┐            │         │ Task D  │
+            │ Task B  │────────────┼────────▶│(BLOCKED)│  ← STAYS BLOCKED!
+            │  (DONE) │ ✓          │         │         │
+            └─────────┘            │         └─────────┘
+                                   │
+            ┌─────────┐            │
+            │ Task C  │────────────┘
+            │  (DONE) │ ✓
+            └─────────┘
+
+CANCELLED tasks still block children!
+Manager must remove dependency manually to unblock D.
+```
+
+### B.6 Schedule Propagation (MAX Rule)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SCHEDULE PROPAGATION - MAX RULE                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+SCENARIO: Task D depends on A, B, and C
+
+INITIAL STATE (Expected dates):
+─────────────────────────────────────────────────────────────────────────────
+
+    A: Jan 25 ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       expected_end: Jan 28
+
+    B: Jan 25 ██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       expected_end: Jan 29
+
+    C: Jan 25 ████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       expected_end: Jan 30
+
+    D: Jan 31 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████████████████░░░░░░░░░░░░
+       expected_start: Jan 31 (MAX of parents + 1)
+       expected_end: Feb 05
+
+
+AFTER A COMPLETES EARLY (Jan 26 instead of Jan 28):
+─────────────────────────────────────────────────────────────────────────────
+
+    A: Jan 25 ██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       actual_end: Jan 26 ✓ (2 days EARLY)
+
+    B: Jan 25 ██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       expected_end: Jan 29 (still working)
+
+    C: Jan 25 ████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       expected_end: Jan 30 (still working)
+
+    D: Jan 31 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████████████████░░░░░░░░░░░░
+       expected_start: Jan 31 (NO CHANGE - still waiting for B and C)
+
+    MAX(Jan 26, Jan 29, Jan 30) = Jan 30 → D starts Jan 31
+
+
+AFTER B COMPLETES LATE (Jan 31 instead of Jan 29):
+─────────────────────────────────────────────────────────────────────────────
+
+    A: actual_end: Jan 26 ✓
+
+    B: Jan 25 ██████████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       actual_end: Jan 31 ✓ (2 days LATE)
+
+    C: Jan 25 ████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+       expected_end: Jan 30 (still working)
+
+    D: Feb 01 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████████████████░░░░░░░░░
+       expected_start: Feb 01 (SHIFTED +1 day)
+       expected_end: Feb 06 (SHIFTED +1 day, duration preserved)
+
+    MAX(Jan 26, Jan 31, Jan 30) = Jan 31 → D starts Feb 01
+
+    ┌─────────────────────────────────────────┐
+    │ TaskScheduleHistory created:            │
+    │   old_start: Jan 31                     │
+    │   new_start: Feb 01                     │
+    │   old_end: Feb 05                       │
+    │   new_end: Feb 06                       │
+    │   reason: DEPENDENCY_DELAY              │
+    │   caused_by: Task B                     │
+    └─────────────────────────────────────────┘
+```
+
+### B.7 Workload Status Levels
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         WORKLOAD STATUS LEVELS                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    CAPACITY CALCULATION:
+    ─────────────────────
+    capacity = role.base_capacity × level_multiplier
+
+    Level Multipliers:
+    ┌────────────┬────────────┐
+    │   Level    │ Multiplier │
+    ├────────────┼────────────┤
+    │ JUNIOR     │    0.6     │
+    │ MID        │    1.0     │
+    │ SENIOR     │    1.3     │
+    │ SPECIALIST │    1.2     │
+    │ LEAD       │    1.1     │
+    └────────────┴────────────┘
+
+    WORKLOAD SCORE:
+    ────────────────
+    workload = SUM(difficulty of all DOING tasks)
+
+
+    STATUS THRESHOLDS (ratio = workload / capacity):
+    ─────────────────────────────────────────────────
+
+    ratio
+      │
+    2.0┤                          ╔═══════════════════════════════╗
+      │                          ║                               ║
+      │                          ║         IMPOSSIBLE            ║
+      │                          ║     (ratio > 1.5)             ║
+    1.5┤ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ╠═══════════════════════════════╣
+      │                          ║                               ║
+      │                          ║           TIGHT               ║
+      │                          ║   (1.2 < ratio <= 1.5)        ║
+    1.2┤ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ╠═══════════════════════════════╣
+      │                          ║                               ║
+    1.0┤ ─ ─ ─ ─ ─ CAPACITY ─ ─ ─║─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ║
+      │                          ║          HEALTHY              ║
+      │                          ║   (0.7 < ratio <= 1.2)        ║
+    0.7┤ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ╠═══════════════════════════════╣
+      │                          ║                               ║
+      │                          ║          RELAXED              ║
+      │                          ║   (0.3 < ratio <= 0.7)        ║
+    0.3┤ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ╠═══════════════════════════════╣
+      │                          ║                               ║
+      │                          ║           IDLE                ║
+      │                          ║     (ratio <= 0.3)            ║
+    0.0┤                          ╚═══════════════════════════════╝
+      └────────────────────────────────────────────────────────────▶
+
+
+    EXAMPLE:
+    ────────
+    Backend Developer (MID level)
+    Role base_capacity: 5
+
+    capacity = 5 × 1.0 = 5.0
+
+    Current tasks:
+      - Task 1: difficulty 3
+      - Task 2: difficulty 4
+
+    workload = 3 + 4 = 7
+    ratio = 7 / 5 = 1.4
+
+    Status: TIGHT (1.2 < 1.4 <= 1.5)
+
+    If tries to pick Task 3 (difficulty 5):
+      projected_workload = 7 + 5 = 12
+      projected_ratio = 12 / 5 = 2.4
+      Status would be: IMPOSSIBLE (2.4 > 1.5)
+
+      → ASSIGNMENT BLOCKED ✗
+```
+
+### B.8 Notification Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           NOTIFICATION SYSTEM                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                              ┌─────────────────┐
+                              │    TRIGGERS     │
+                              └────────┬────────┘
+                                       │
+         ┌─────────────────────────────┼─────────────────────────────┐
+         │                             │                             │
+         ▼                             ▼                             ▼
+┌─────────────────┐          ┌─────────────────┐          ┌─────────────────┐
+│  TIME-BASED     │          │  EVENT-BASED    │          │  THRESHOLD      │
+│  (Scheduled)    │          │  (Immediate)    │          │  (Trigger)      │
+└────────┬────────┘          └────────┬────────┘          └────────┬────────┘
+         │                            │                            │
+         │                            │                            │
+    ┌────┴────┐                  ┌────┴────┐                  ┌────┴────┐
+    │ 08:00   │                  │  When   │                  │  When   │
+    │ Daily   │                  │  task   │                  │ status  │
+    │         │                  │ created │                  │ changes │
+    └────┬────┘                  └────┬────┘                  └────┬────┘
+         │                            │                            │
+         ▼                            ▼                            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              MANAGER NOTIFICATIONS                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  📧 DAILY REPORT (08:00)                                                    │
+│  ├── Tasks completed yesterday (early/late breakdown)                       │
+│  ├── Tasks currently delayed                                                │
+│  ├── Tasks ahead of schedule                                                │
+│  └── Project health summary                                                 │
+│                                                                             │
+│  🚨 IMMEDIATE ALERTS (Trigger-based)                                        │
+│  ├── Employee reached IMPOSSIBLE status                                     │
+│  └── Employee reached IDLE status                                           │
+│                                                                             │
+│  ⚠️  Cannot be disabled                                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             EMPLOYEE NOTIFICATIONS                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  🔔 IN-APP TOAST (Immediate)                                                │
+│  └── New task available matching your role                                  │
+│      ├── Task title                                                         │
+│      ├── Difficulty                                                         │
+│      └── Expected dates                                                     │
+│                                                                             │
+│  📧 DAILY EMAIL (08:00)                                                     │
+│  ├── New tasks available for your role                                      │
+│  ├── Your tasks in progress (with deadlines)                                │
+│  └── Tasks approaching deadline                                             │
+│                                                                             │
+│  ⚠️  DEADLINE WARNING (1 day before)                                        │
+│  └── Project expected_end_date is tomorrow!                                 │
+│      ├── Project name                                                       │
+│      ├── Deadline date                                                      │
+│      └── Your pending tasks                                                 │
+│                                                                             │
+│  ⚙️  Can be configured in preferences (except deadline warning)             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Appendix C: Glossary
+
+| Term | Definition |
+|------|------------|
+| **Manager** | User who created the project; manages but doesn't execute tasks |
+| **Employee** | Project member who executes tasks |
+| **Role** | Job function defined by Manager (e.g., "Backend", "Frontend") |
+| **Level** | Seniority within a role (Junior, Mid, Senior, Specialist, Lead) |
+| **Workload** | Calculated burden based on assigned tasks and difficulty |
+| **Abandonment** | Record of why/how a task assignment ended prematurely |
+| **Propagation** | Automatic adjustment of dependent task dates |
+| **Magic Link** | Passwordless authentication via email link |
+| **DAG** | Directed Acyclic Graph - task dependencies form this structure |
+
+---
+
+*End of Business Rules Specification*

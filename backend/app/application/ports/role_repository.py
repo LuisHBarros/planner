@@ -1,24 +1,21 @@
 """Role repository port."""
 from typing import Protocol, Optional, List
-from uuid import UUID
+
 from app.domain.models.role import Role
+from app.domain.models.value_objects import ProjectId, RoleId
 
 
 class RoleRepository(Protocol):
     """Repository interface for Role entities."""
-    
+
     def save(self, role: Role) -> None:
-        """Save a role."""
+        """Persist a role."""
         ...
-    
-    def find_by_id(self, role_id: UUID) -> Optional[Role]:
+
+    def find_by_id(self, role_id: RoleId) -> Optional[Role]:
         """Find role by ID."""
         ...
-    
-    def find_by_team_id(self, team_id: UUID) -> List[Role]:
-        """Find all roles for a team."""
-        ...
-    
-    def find_by_user_and_team(self, user_id: UUID, team_id: UUID) -> List[Role]:
-        """Find all roles for a user in a team."""
+
+    def list_by_project(self, project_id: ProjectId) -> List[Role]:
+        """List roles in a project."""
         ...

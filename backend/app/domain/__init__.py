@@ -1,1 +1,1 @@
-"""Domain layer - business logic and entities."""
+"""Domain layer package."""

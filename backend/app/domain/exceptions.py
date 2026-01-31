@@ -1,16 +1,9 @@
-"""Domain exceptions for business rule violations."""
-from typing import Optional
+"""Domain exceptions."""
 
 
-class BusinessRuleViolation(Exception):
+class BusinessRuleViolation(ValueError):
     """Raised when a business rule is violated."""
-    
-    def __init__(self, message: str, code: Optional[str] = None):
-        self.message = message
+
+    def __init__(self, message: str, code: str = "business_rule_violation"):
+        super().__init__(message)
         self.code = code
-        super().__init__(self.message)
-
-
-class DomainError(Exception):
-    """Base exception for domain errors."""
-    pass

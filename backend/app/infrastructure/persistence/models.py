@@ -1,289 +1,191 @@
-"""SQLAlchemy ORM models for database persistence."""
+"""SQLAlchemy ORM models."""
+from __future__ import annotations
+
 from datetime import datetime
-from uuid import UUID, uuid4
-from sqlalchemy import (
-    Column,
-    String,
-    Integer,
-    Float,
-    Boolean,
-    Text,
-    ForeignKey,
-    Enum as SQLEnum,
-    DateTime,
-)
-from sqlalchemy.orm import relationship
 
-from app.infrastructure.database import Base
-from sqlalchemy import UniqueConstraint
-
-from app.domain.models.enums import (
-    TaskStatus,
-    TaskPriority,
-    RoleLevel,
-    ProjectStatus,
-    CompanyPlan,
-    DependencyType,
-    NoteType,
-    CompletionSource,
-    ScheduleChangeReason,
-    TeamMemberRole,
-    ProjectMemberRole,
-    AbandonmentType,
-    AssignmentAction,
-)
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-class CompanyModel(Base):
-    """SQLAlchemy model for Company."""
-    __tablename__ = "companies"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    name = Column(String(255), nullable=False)
-    slug = Column(String(255), unique=True, nullable=False)
-    plan = Column(SQLEnum(CompanyPlan), nullable=False, default=CompanyPlan.FREE)
-    billing_email = Column(String(255), nullable=False)
-    ai_enabled = Column(Boolean, default=False)
-    ai_provider = Column(String(50), nullable=True)
-    ai_api_key = Column(Text, nullable=True)  # Encrypted in production
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    teams = relationship("TeamModel", back_populates="company")
-
-
-class TeamModel(Base):
-    """SQLAlchemy model for Team."""
-    __tablename__ = "teams"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    default_language = Column(String(10), default="en")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    company = relationship("CompanyModel", back_populates="teams")
-    roles = relationship("RoleModel", back_populates="team")
-    projects = relationship("ProjectModel", back_populates="team")
+class Base(DeclarativeBase):
+    """Declarative base for ORM models."""
 
 
 class UserModel(Base):
-    """SQLAlchemy model for User."""
+    """User ORM model."""
     __tablename__ = "users"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    email = Column(String(255), unique=True, nullable=False)
-    name = Column(String(255), nullable=False)
-    preferred_language = Column(String(10), nullable=True)
-    avatar_url = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
 
-
-class RoleModel(Base):
-    """SQLAlchemy model for Role."""
-    __tablename__ = "roles"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    team_id = Column(String(36), ForeignKey("teams.id"), nullable=False)
-    name = Column(String(255), nullable=False)
-    level = Column(SQLEnum(RoleLevel), nullable=False)
-    base_capacity = Column(Integer, nullable=False)
-    description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    team = relationship("TeamModel", back_populates="roles")
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ProjectModel(Base):
-    """SQLAlchemy model for Project."""
+    """Project ORM model."""
     __tablename__ = "projects"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    team_id = Column(String(36), ForeignKey("teams.id"), nullable=False)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    status = Column(SQLEnum(ProjectStatus), default=ProjectStatus.ACTIVE)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    team = relationship("TeamModel", back_populates="projects")
-    tasks = relationship("TaskModel", back_populates="project")
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(36), nullable=False)
+    expected_end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    llm_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    llm_provider: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    llm_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class TaskModel(Base):
-    """SQLAlchemy model for Task."""
-    __tablename__ = "tasks"
+class RoleModel(Base):
+    """Role ORM model."""
+    __tablename__ = "roles"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
-    title = Column(String(500), nullable=False)
-    description = Column(Text, nullable=False)
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.TODO)
-    priority = Column(SQLEnum(TaskPriority), default=TaskPriority.MEDIUM)
-    rank_index = Column(Float, nullable=False, default=1.0)
-    role_responsible_id = Column(String(36), ForeignKey("roles.id"), nullable=False)
-    user_responsible_id = Column(String(36), ForeignKey("users.id"), nullable=True)
-    difficulty = Column(Integer, nullable=True)  # v3.0: 1-10 scale (BR-TASK-002)
-    completion_percentage = Column(Integer, nullable=True)
-    completion_source = Column(SQLEnum(CompletionSource), nullable=True)
-    due_date = Column(DateTime, nullable=True)
-    expected_start_date = Column(DateTime, nullable=True)
-    expected_end_date = Column(DateTime, nullable=True)
-    actual_start_date = Column(DateTime, nullable=True)
-    actual_end_date = Column(DateTime, nullable=True)
-    is_delayed = Column(Boolean, default=False)
-    blocked_reason = Column(Text, nullable=True)
-    cancellation_reason = Column(Text, nullable=True)  # v3.0
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-    cancelled_at = Column(DateTime, nullable=True)  # v3.0
-    
-    project = relationship("ProjectModel", back_populates="tasks")
-    notes = relationship("NoteModel", back_populates="task", order_by="NoteModel.created_at")
-    dependencies = relationship(
-        "TaskDependencyModel",
-        foreign_keys="TaskDependencyModel.task_id",
-        back_populates="task"
-    )
-    dependents = relationship(
-        "TaskDependencyModel",
-        foreign_keys="TaskDependencyModel.depends_on_task_id",
-        back_populates="depends_on_task"
-    )
-
-
-class ScheduleHistoryModel(Base):
-    """SQLAlchemy model for ScheduleHistory."""
-
-    __tablename__ = "schedule_history"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
-    old_expected_start = Column(DateTime, nullable=True)
-    old_expected_end = Column(DateTime, nullable=True)
-    new_expected_start = Column(DateTime, nullable=True)
-    new_expected_end = Column(DateTime, nullable=True)
-    reason = Column(SQLEnum(ScheduleChangeReason), nullable=False)
-    caused_by_task_id = Column(String(36), ForeignKey("tasks.id"), nullable=True)
-    changed_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-
-class TaskDependencyModel(Base):
-    """SQLAlchemy model for TaskDependency."""
-    __tablename__ = "task_dependencies"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
-    depends_on_task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
-    dependency_type = Column(SQLEnum(DependencyType), default=DependencyType.BLOCKS)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    task = relationship("TaskModel", foreign_keys=[task_id], back_populates="dependencies")
-    depends_on_task = relationship("TaskModel", foreign_keys=[depends_on_task_id], back_populates="dependents")
-
-
-class NoteModel(Base):
-    """SQLAlchemy model for Note."""
-    __tablename__ = "notes"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
-    content = Column(Text, nullable=False)
-    note_type = Column(SQLEnum(NoteType), default=NoteType.COMMENT)
-    author_id = Column(String(36), ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    task = relationship("TaskModel", back_populates="notes")
-
-
-class EmailPreferencesModel(Base):
-    """SQLAlchemy model for EmailPreferences."""
-    __tablename__ = "email_preferences"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id"), unique=True, nullable=False)
-    task_created = Column(Boolean, default=True)
-    task_assigned = Column(Boolean, default=True)
-    due_date_reminder = Column(Boolean, default=True)
-    task_completed = Column(Boolean, default=False)
-    task_blocked = Column(Boolean, default=True)
-    task_unblocked = Column(Boolean, default=True)
-    digest_mode = Column(String(20), default="daily")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class TeamMemberModel(Base):
-    """SQLAlchemy model for TeamMember."""
-
-    __tablename__ = "team_members"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    team_id = Column(String(36), ForeignKey("teams.id"), nullable=False)
-    role = Column(SQLEnum(TeamMemberRole), nullable=False, default=TeamMemberRole.MEMBER)
-    joined_at = Column(DateTime, default=datetime.utcnow)
-
-
-class TeamInviteModel(Base):
-    """SQLAlchemy model for TeamInvite."""
-
-    __tablename__ = "team_invites"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    team_id = Column(String(36), ForeignKey("teams.id"), nullable=False)
-    role = Column(SQLEnum(TeamMemberRole), nullable=False)
-    token = Column(String(255), unique=True, nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    used_at = Column(DateTime, nullable=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ProjectMemberModel(Base):
-    """SQLAlchemy model for ProjectMember (v3.0)."""
-
+    """Project member ORM model."""
     __tablename__ = "project_members"
-    __table_args__ = (
-        UniqueConstraint("project_id", "user_id", name="uq_project_member"),
-    )
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    role = Column(SQLEnum(ProjectMemberRole), nullable=False, default=ProjectMemberRole.EMPLOYEE)
-    level = Column(SQLEnum(RoleLevel), nullable=False, default=RoleLevel.MID)
-    is_active = Column(Boolean, default=True)
-    joined_at = Column(DateTime, default=datetime.utcnow)
-    left_at = Column(DateTime, nullable=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    role_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("roles.id"), nullable=True)
+    level: Mapped[str] = mapped_column(String(50), nullable=False)
+    base_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_manager: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class TaskAssignmentHistoryModel(Base):
-    """SQLAlchemy model for TaskAssignmentHistory (v3.0)."""
+class ProjectInviteModel(Base):
+    """Project invite ORM model."""
+    __tablename__ = "project_invites"
 
-    __tablename__ = "task_assignment_history"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    role_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("roles.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    action = Column(SQLEnum(AssignmentAction), nullable=False)
-    abandonment_type = Column(SQLEnum(AbandonmentType), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+
+class TaskModel(Base):
+    """Task ORM model."""
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    difficulty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    role_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("roles.id"), nullable=True)
+    assigned_to: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    expected_start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expected_end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TaskDependencyModel(Base):
+    """Task dependency ORM model."""
+    __tablename__ = "task_dependencies"
+
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), primary_key=True)
+    depends_on_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), primary_key=True)
+    dependency_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TaskReportModel(Base):
+    """Task report ORM model."""
+    __tablename__ = "task_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), nullable=False)
+    author_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    progress: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class TaskAbandonmentModel(Base):
-    """SQLAlchemy model for TaskAbandonment (v3.0)."""
-
+    """Task abandonment ORM model."""
     __tablename__ = "task_abandonments"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    abandonment_type = Column(SQLEnum(AbandonmentType), nullable=False)
-    reason = Column(Text, nullable=True)
-    initiated_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    abandonment_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TaskAssignmentHistoryModel(Base):
+    """Task assignment history ORM model."""
+    __tablename__ = "task_assignment_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    unassigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    assignment_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class TaskScheduleHistoryModel(Base):
+    """Task schedule history ORM model."""
+    __tablename__ = "task_schedule_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), nullable=False)
+    previous_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    previous_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    new_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    new_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    reason: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ProjectScheduleHistoryModel(Base):
+    """Project schedule history ORM model."""
+    __tablename__ = "project_schedule_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
+    previous_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    new_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    reason: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class NotificationPreferenceModel(Base):
+    """Notification preference ORM model."""
+    __tablename__ = "notification_preferences"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    email_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    toast_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MagicLinkModel(Base):
+    """Magic link ORM model."""
+    __tablename__ = "magic_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

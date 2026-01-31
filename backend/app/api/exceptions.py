@@ -1,31 +1,29 @@
-"""Exception handlers for FastAPI."""
-from fastapi import FastAPI, Request, status
+"""API exception handlers."""
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.domain.exceptions import BusinessRuleViolation
 
 
-def setup_exception_handlers(app: FastAPI):
-    """Setup exception handlers for the application."""
-    
+def register_exception_handlers(app: FastAPI) -> None:
+    """Register exception handlers."""
+
     @app.exception_handler(BusinessRuleViolation)
-    async def business_rule_violation_handler(
-        request: Request, exc: BusinessRuleViolation
-    ):
-        """Handle business rule violations."""
+    async def business_rule_handler(
+        _request: Request,
+        exc: BusinessRuleViolation,
+    ) -> JSONResponse:
         return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "error": "Business rule violation",
-                "message": exc.message,
-                "code": exc.code,
-            },
+            status_code=400,
+            content={"detail": str(exc), "code": exc.code},
         )
-    
-    @app.exception_handler(ValueError)
-    async def value_error_handler(request: Request, exc: ValueError):
-        """Handle value errors."""
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(
+        _request: Request,
+        exc: HTTPException,
+    ) -> JSONResponse:
         return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": "Validation error", "message": str(exc)},
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
         )

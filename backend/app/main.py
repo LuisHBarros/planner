@@ -1,98 +1,44 @@
-"""FastAPI application factory and startup wiring."""
-from contextlib import asynccontextmanager
-
+"""FastAPI app entrypoint."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 
-from app.config import settings
-from app.infrastructure.database import engine, Base, get_db
-from app.infrastructure.events.in_memory_event_bus import InMemoryEventBus
-from app.infrastructure.events.handlers.dependency_handler import DependencyHandler
-from app.infrastructure.i18n.translation_service import TranslationService
-from app.infrastructure.persistence.repositories import (
-    SqlAlchemyCompanyRepository,
-    SqlAlchemyTeamRepository,
-    SqlAlchemyUserRepository,
-    SqlAlchemyRoleRepository,
-    SqlAlchemyProjectRepository,
-    SqlAlchemyTaskRepository,
-    SqlAlchemyTaskDependencyRepository,
-    SqlAlchemyNoteRepository,
-)
-from app.api.routes import companies, teams, roles, projects, tasks, invites, me
-from app.api.exceptions import setup_exception_handlers
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan: initialize and tear down infrastructure components."""
-    # Create a short-lived session just for wiring repositories into handlers
-    db: Session = next(get_db())
-    task_repo = SqlAlchemyTaskRepository(db)
-    dep_repo = SqlAlchemyTaskDependencyRepository(db)
-
-    # Initialize event bus and register handlers
-    event_bus = InMemoryEventBus()
-    dependency_handler = DependencyHandler(event_bus, task_repo, dep_repo)
-    dependency_handler.register()
-
-    app.state.event_bus = event_bus
-    app.state.translation_service = TranslationService()
-
-    try:
-        yield
-    finally:
-        db.close()
+from app.api.dependencies import event_bus
+from app.api.exceptions import register_exception_handlers
+from app.api.middleware.auth import JwtAuthMiddleware
+from app.api.routes import auth, employees, invites, me, projects, schedule, tasks
+from app.infrastructure.events.handlers.notification_handler import register_notification_handlers
+from app.infrastructure.notifications.daily_report_job import start_daily_report_job
+from app.infrastructure.notifications.notification_service import NotificationService
 
 
 def create_app() -> FastAPI:
-    """Create and configure FastAPI application."""
-    app = FastAPI(
-        title=settings.api_title,
-        version=settings.api_version,
-        debug=settings.debug,
-        lifespan=lifespan,
-    )
+    """Create FastAPI application."""
+    app = FastAPI(title="Planner Multiplayer API")
 
-    # CORS middleware
+    app.add_middleware(JwtAuthMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.debug else [],
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Setup exception handlers
-    setup_exception_handlers(app)
+    register_exception_handlers(app)
 
-    # Initialize database tables (for development)
-    if settings.env == "development":
-        Base.metadata.create_all(bind=engine)
-
-    # Include routers
-    app.include_router(companies.router, prefix="/api/companies", tags=["companies"])
-    app.include_router(teams.router, prefix="/api/teams", tags=["teams"])
-    app.include_router(roles.router, prefix="/api/roles", tags=["roles"])
+    app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
+    app.include_router(invites.router, prefix="/api/invites", tags=["invites"])
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
-    app.include_router(invites.router, prefix="/api", tags=["invites"])
-    app.include_router(me.router, prefix="/api", tags=["me"])
+    app.include_router(employees.router, prefix="/api/employees", tags=["employees"])
+    app.include_router(schedule.router, prefix="/api/schedule", tags=["schedule"])
+    app.include_router(me.router, prefix="/api/me", tags=["me"])
+
+    notification_service = NotificationService()
+    register_notification_handlers(event_bus, notification_service)
+    start_daily_report_job(event_bus)
 
     return app
 
 
 app = create_app()
-
-
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {"message": "Planner API", "version": settings.api_version}
-
-
-@app.get("/health")
-async def health():
-    """Health check endpoint."""
-    return {"status": "healthy"}

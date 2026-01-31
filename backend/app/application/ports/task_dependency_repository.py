@@ -1,28 +1,21 @@
-"""Task dependency repository port."""
-from typing import Protocol, Optional, List
-from uuid import UUID
+"""TaskDependency repository port."""
+from typing import Protocol, List
+
 from app.domain.models.task_dependency import TaskDependency
+from app.domain.models.value_objects import TaskId
 
 
 class TaskDependencyRepository(Protocol):
     """Repository interface for TaskDependency entities."""
-    
+
     def save(self, dependency: TaskDependency) -> None:
-        """Save a dependency."""
+        """Persist a task dependency."""
         ...
-    
-    def find_by_id(self, dependency_id: UUID) -> Optional[TaskDependency]:
-        """Find dependency by ID."""
+
+    def list_by_task(self, task_id: TaskId) -> List[TaskDependency]:
+        """List dependencies for a task."""
         ...
-    
-    def find_by_task_id(self, task_id: UUID) -> List[TaskDependency]:
-        """Find all dependencies for a task."""
-        ...
-    
-    def find_by_depends_on_task_id(self, depends_on_task_id: UUID) -> List[TaskDependency]:
-        """Find all tasks that depend on the given task."""
-        ...
-    
-    def delete(self, dependency_id: UUID) -> None:
+
+    def delete(self, task_id: TaskId, depends_on_id: TaskId) -> None:
         """Delete a dependency."""
         ...

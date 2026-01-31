@@ -1,698 +1,292 @@
-"""Task endpoints."""
-from datetime import datetime
-from typing import Optional, List
+"""Task routes."""
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
-from sqlalchemy.orm import Session
-
-from app.infrastructure.database import get_db
-from app.infrastructure.persistence.repositories import (
-    SqlAlchemyTaskRepository,
-    SqlAlchemyProjectRepository,
-    SqlAlchemyRoleRepository,
-    SqlAlchemyUserRepository,
-    SqlAlchemyNoteRepository,
-    SqlAlchemyTaskDependencyRepository,
+from app.api.dependencies import get_current_user, get_unit_of_work
+from app.application.dtos.task_dtos import (
+    AbandonTaskInput,
+    CalculateProgressInput,
+    CreateTaskInput,
+    SelectTaskInput,
+    SetTaskDifficultyInput,
+    TaskDependencyInput,
+    TaskReportInput,
 )
-from app.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-try:
-    from app.infrastructure.persistence.repositories import (
-        SqlAlchemyTeamMemberRepository,
-    )
-except ImportError:
-    SqlAlchemyTeamMemberRepository = None  # type: ignore
-from app.application.use_cases.create_task import CreateTaskUseCase
-from app.application.use_cases.dtos import CreateTaskInputDTO
-from app.application.use_cases.claim_task import ClaimTaskUseCase
-from app.application.use_cases.update_task_status import UpdateTaskStatusUseCase
-from app.application.use_cases.add_task_note import AddTaskNoteUseCase
+from app.application.use_cases.abandon_task import AbandonTaskUseCase
 from app.application.use_cases.add_task_dependency import AddTaskDependencyUseCase
+from app.application.use_cases.add_task_report import AddTaskReportUseCase
+from app.application.use_cases.calculate_progress_llm import CalculateProgressLlmUseCase
+from app.application.use_cases.calculate_task_difficulty_llm import CalculateTaskDifficultyLlmUseCase
+from app.application.use_cases.cancel_task import CancelTaskUseCase
+from app.application.use_cases.complete_task import CompleteTaskUseCase
+from app.application.use_cases.create_task import CreateTaskUseCase
 from app.application.use_cases.remove_task_dependency import RemoveTaskDependencyUseCase
-from app.application.use_cases.update_task_progress_manual import UpdateTaskProgressManualUseCase
-from app.application.use_cases.get_delay_chain import GetDelayChainUseCase
-from app.domain.models.task import Task
-from app.domain.models.note import Note
-from app.domain.models.task_dependency import TaskDependency
-from app.domain.models.enums import (
-    TaskStatus,
-    TaskPriority,
-    CompletionSource,
-    DependencyType,
-    NoteType,
-    ScheduleChangeReason,
-)
-from app.domain.exceptions import BusinessRuleViolation
+from app.application.use_cases.select_task import SelectTaskUseCase
+from app.application.use_cases.set_task_difficulty_manual import SetTaskDifficultyManualUseCase
+from app.application.use_cases.update_progress_manual import UpdateProgressManualUseCase
+from app.domain.models.enums import AbandonmentType, ProgressSource
+from app.domain.models.user import User
+from app.domain.models.value_objects import ProjectId, RoleId, TaskId
+from app.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 
 router = APIRouter()
 
 
-# Request/Response DTOs
 class CreateTaskRequest(BaseModel):
-    """Request model for creating a task."""
     project_id: UUID
     title: str
-    description: str
-    role_responsible_id: UUID
-    priority: TaskPriority = TaskPriority.MEDIUM
-    due_date: Optional[datetime] = None
+    description: str | None = None
+    role_id: UUID | None = None
 
 
-class ClaimTaskRequest(BaseModel):
-    """Request model for claiming a task."""
-    user_id: UUID
-    # Note: user_id is a temporary MVP mechanism.
-    # In production, this value MUST come from the authenticated request context
-    # (JWT/session) and not from client input.
+class SetDifficultyRequest(BaseModel):
+    task_id: UUID
+    difficulty: int
 
 
-class UpdateStatusRequest(BaseModel):
-    """Request model for updating task status."""
-    status: TaskStatus
-    user_id: Optional[UUID] = None
-    # Note: user_id is a temporary MVP mechanism.
-    # In production, this value MUST come from the authenticated request context
-    # (JWT/session) and not from client input.
+class DependencyRequest(BaseModel):
+    task_id: UUID
+    depends_on_id: UUID
 
 
-class AddNoteRequest(BaseModel):
-    """Request model for adding a note."""
-    content: str
-    author_id: UUID
+class AbandonTaskRequest(BaseModel):
+    task_id: UUID
+    abandonment_type: AbandonmentType
+    note: str | None = None
 
 
-class AddDependencyRequest(BaseModel):
-    """Request model for adding a dependency."""
-    depends_on_task_id: UUID
-    dependency_type: DependencyType = DependencyType.BLOCKS
+class TaskReportRequest(BaseModel):
+    task_id: UUID
+    progress: int
+    note: str | None = None
 
 
-class UpdateProgressRequest(BaseModel):
-    """Request model for updating progress."""
-    completion_percentage: int = Field(ge=0, le=100)
-    user_id: UUID
-    # Note: user_id is a temporary MVP mechanism.
-    # In production, this value MUST come from the authenticated request context
-    # (JWT/session) and not from client input.
+class ProgressUpdateRequest(BaseModel):
+    progress: int
+    note: str | None = None
 
 
-class TaskResponse(BaseModel):
-    """Response model for a task."""
-    id: str
-    project_id: str
-    title: str
-    description: str
-    status: TaskStatus
-    priority: TaskPriority
-    rank_index: float
-    role_responsible_id: str
-    user_responsible_id: Optional[str] = None
-    completion_percentage: Optional[int] = None
-    completion_source: Optional[CompletionSource] = None
-    due_date: Optional[str] = None
-    blocked_reason: Optional[str] = None
-    created_at: str
-    updated_at: str
-    completed_at: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
-class NoteResponse(BaseModel):
-    """Response model for a note."""
-    id: str
-    task_id: str
-    content: str
-    note_type: NoteType
-    author_id: Optional[str] = None
-    created_at: str
-    updated_at: str
-
-    class Config:
-        from_attributes = True
-
-
-class TaskDependencyResponse(BaseModel):
-    """Response model for a task dependency."""
-    id: str
-    task_id: str
-    depends_on_task_id: str
-    dependency_type: DependencyType
-    created_at: str
-
-    class Config:
-        from_attributes = True
-
-
-class TaskListResponse(BaseModel):
-    """Response model for list of tasks."""
-    tasks: List[TaskResponse]
-
-
-class NoteListResponse(BaseModel):
-    """Response model for list of notes."""
-    notes: List[NoteResponse]
-
-
-class DependencyListResponse(BaseModel):
-    """Response model for list of dependencies."""
-    dependencies: List[TaskDependencyResponse]
-
-
-class DelayChainEntryResponse(BaseModel):
-    """Response model for a single delay chain entry."""
-    task_id: str
-    task_title: str
-    old_expected_start: Optional[str] = None
-    old_expected_end: Optional[str] = None
-    new_expected_start: Optional[str] = None
-    new_expected_end: Optional[str] = None
-    reason: ScheduleChangeReason
-    caused_by_task_id: Optional[str] = None
-    caused_by_task_title: Optional[str] = None
-    changed_by_user_id: Optional[str] = None
-    created_at: str
-
-    class Config:
-        from_attributes = True
-
-
-class DelayChainResponse(BaseModel):
-    """Response model for task delay chain (UC-030).
-
-    Provides causal chain of delays for root cause analysis.
-    """
-    task_id: str
-    task_title: str
-    is_delayed: bool
-    total_delay_days: Optional[float] = None
-    entries: List[DelayChainEntryResponse]
-    root_cause_task_id: Optional[str] = None
-    root_cause_task_title: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
-def _task_to_response(task: Task) -> TaskResponse:
-    """Convert domain task to response model."""
-    return TaskResponse(
-        id=str(task.id),
-        project_id=str(task.project_id),
-        title=task.title,
-        description=task.description,
-        status=task.status,
-        priority=task.priority,
-        rank_index=task.rank_index,
-        role_responsible_id=str(task.role_responsible_id),
-        user_responsible_id=str(task.user_responsible_id) if task.user_responsible_id else None,
-        completion_percentage=task.completion_percentage,
-        completion_source=task.completion_source,
-        due_date=task.due_date.isoformat() if task.due_date else None,
-        blocked_reason=task.blocked_reason,
-        created_at=task.created_at.isoformat(),
-        updated_at=task.updated_at.isoformat(),
-        completed_at=task.completed_at.isoformat() if task.completed_at else None,
-    )
-
-
-def _note_to_response(note: Note) -> NoteResponse:
-    """Convert domain note to response model."""
-    return NoteResponse(
-        id=str(note.id),
-        task_id=str(note.task_id),
-        content=note.content,
-        note_type=note.note_type,
-        author_id=str(note.author_id) if note.author_id else None,
-        created_at=note.created_at.isoformat(),
-        updated_at=note.updated_at.isoformat(),
-    )
-
-
-def _dependency_to_response(dep: TaskDependency) -> TaskDependencyResponse:
-    """Convert domain dependency to response model."""
-    return TaskDependencyResponse(
-        id=str(dep.id),
-        task_id=str(dep.task_id),
-        depends_on_task_id=str(dep.depends_on_task_id),
-        dependency_type=dep.dependency_type,
-        created_at=dep.created_at.isoformat(),
-    )
-
-
-@router.get("/", response_model=TaskListResponse)
-async def list_tasks(
-    project_id: Optional[UUID] = None,
-    role_id: Optional[UUID] = None,
-    user_id: Optional[UUID] = None,
-    task_status: Optional[TaskStatus] = None,
-    db: Session = Depends(get_db),
+@router.post("/")
+def create_task(
+    payload: CreateTaskRequest,
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
 ):
-    """
-    List tasks with optional filters.
-    
-    - project_id: Filter by project
-    - role_id: Filter by responsible role
-    - user_id: Filter by assigned user
-    - status: Filter by task status
-    """
-    task_repo = SqlAlchemyTaskRepository(db)
-    
-    if project_id:
-        tasks = task_repo.find_by_project_id(project_id)
-    elif role_id:
-        tasks = task_repo.find_by_role_id(role_id, status=task_status)
-    elif user_id:
-        tasks = task_repo.find_by_user_id(user_id)
-    else:
-        # For MVP, return empty list without specific filter
-        # In production, this would require auth and return user's tasks
-        tasks = []
-    
-    return TaskListResponse(
-        tasks=[_task_to_response(t) for t in tasks]
-    )
+    with uow:
+        project = uow.projects.find_by_id(ProjectId(payload.project_id))
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project.is_manager(current_user.id):
+        raise HTTPException(status_code=403, detail="Manager access required")
+
+    use_case = CreateTaskUseCase(uow=uow, event_bus=uow.event_bus)
+    output = use_case.execute(CreateTaskInput(
+        project_id=ProjectId(payload.project_id),
+        title=payload.title,
+        description=payload.description,
+        role_id=RoleId(payload.role_id) if payload.role_id else None,
+    ))
+    return {
+        "id": str(output.id),
+        "project_id": str(output.project_id),
+        "title": output.title,
+        "description": output.description,
+        "status": output.status.value,
+        "difficulty": output.difficulty,
+    }
 
 
-@router.post("/", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
-async def create_task(
-    request: CreateTaskRequest,
-    fastapi_request: Request,
+@router.post("/difficulty/manual")
+def set_task_difficulty(
+    payload: SetDifficultyRequest,
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
 ):
-    """
-    Create a new task (UC-005).
-    
-    Tasks are assigned to roles, not directly to users.
-    The rank_index is automatically calculated to place the task
-    at the end of the project's task list.
-    """
-    # Get event bus from app state
-    event_bus = fastapi_request.app.state.event_bus
-
-    # Instantiate Unit of Work (manages its own SQLAlchemy session)
-    uow = SqlAlchemyUnitOfWork()
-
-    # Convert request model (Pydantic) to input DTO
-    input_dto = CreateTaskInputDTO(
-        project_id=request.project_id,
-        title=request.title,
-        description=request.description,
-        role_responsible_id=request.role_responsible_id,
-        priority=request.priority,
-        due_date=request.due_date,
-        created_by=None,  # In futuro, vindo do contexto autenticado
-    )
-
-    use_case = CreateTaskUseCase(
-        uow=uow,
-        event_bus=event_bus,
-    )
-
-    task = use_case.execute(input_dto)
-
-    return _task_to_response(task)
-
-
-@router.get("/{task_id}", response_model=TaskResponse)
-async def get_task(
-    task_id: UUID,
-    db: Session = Depends(get_db),
-):
-    """Get a task by ID."""
-    repo = SqlAlchemyTaskRepository(db)
-    task = repo.find_by_id(task_id)
-    
+    with uow:
+        task = uow.tasks.find_by_id(TaskId(payload.task_id))
+        project = uow.projects.find_by_id(task.project_id) if task else None
     if task is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task with id {task_id} not found"
-        )
-    
-    return _task_to_response(task)
+        raise HTTPException(status_code=404, detail="Task not found")
+    if project and not project.is_manager(current_user.id):
+        raise HTTPException(status_code=403, detail="Manager access required")
+
+    use_case = SetTaskDifficultyManualUseCase(uow=uow)
+    output = use_case.execute(SetTaskDifficultyInput(
+        task_id=TaskId(payload.task_id),
+        difficulty=payload.difficulty,
+    ))
+    return {"id": str(output.id), "difficulty": output.difficulty}
 
 
-@router.post("/{task_id}/claim", response_model=TaskResponse)
-async def claim_task(
+@router.post("/difficulty/llm/{task_id}")
+def calculate_task_difficulty(
     task_id: UUID,
-    request: ClaimTaskRequest,
-    fastapi_request: Request,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
 ):
-    """
-    Claim a task (UC-006).
-    
-    Assigns the task to a user and changes status from 'todo' to 'doing'.
-    The user must have the role that the task is assigned to.
-    
-    Note: user_id is a temporary MVP mechanism. In production, this value
-    MUST come from the authenticated request context (JWT/session), not from client input.
-    """
-    task_repo = SqlAlchemyTaskRepository(db)
-    user_repo = SqlAlchemyUserRepository(db)
-    role_repo = SqlAlchemyRoleRepository(db)
-    project_repo = SqlAlchemyProjectRepository(db)
-    note_repo = SqlAlchemyNoteRepository(db)
-    
-    event_bus = fastapi_request.app.state.event_bus
-    
-    use_case = ClaimTaskUseCase(
-        task_repository=task_repo,
-        user_repository=user_repo,
-        role_repository=role_repo,
-        project_repository=project_repo,
-        note_repository=note_repo,
-        event_bus=event_bus,
-    )
-    
-    use_case.execute(
-        task_id=task_id,
-        user_id=request.user_id,
-    )
-    
-    db.commit()
-    
-    # Reload task to get updated state
-    task = task_repo.find_by_id(task_id)
-    return _task_to_response(task)
+    with uow:
+        task = uow.tasks.find_by_id(TaskId(task_id))
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        project = uow.projects.find_by_id(task.project_id)
+        if project and not project.is_manager(current_user.id):
+            raise HTTPException(status_code=403, detail="Manager access required")
+
+    use_case = CalculateTaskDifficultyLlmUseCase(uow=uow)
+    output = use_case.execute(TaskId(task_id))
+    return {"id": str(output.id), "difficulty": output.difficulty}
 
 
-@router.patch("/{task_id}/status", response_model=TaskResponse)
-async def update_task_status(
-    task_id: UUID,
-    request: UpdateStatusRequest,
-    fastapi_request: Request,
-    db: Session = Depends(get_db),
+@router.post("/dependencies")
+def add_dependency(
+    payload: DependencyRequest,
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
 ):
-    """
-    Update task status (UC-007).
-    
-    Valid transitions:
-    - todo → doing, blocked
-    - doing → done, blocked
-    - blocked → todo
-    - done → (terminal, cannot change)
-    
-    Note: user_id is a temporary MVP mechanism. In production, this value
-    MUST come from the authenticated request context (JWT/session), not from client input.
-    """
-    task_repo = SqlAlchemyTaskRepository(db)
-    note_repo = SqlAlchemyNoteRepository(db)
-    
-    event_bus = fastapi_request.app.state.event_bus
-    
-    use_case = UpdateTaskStatusUseCase(
-        task_repository=task_repo,
-        note_repository=note_repo,
-        event_bus=event_bus,
-    )
-    
-    task = use_case.execute(
-        task_id=task_id,
-        new_status=request.status,
-        user_id=request.user_id,
-    )
-    
-    db.commit()
-    
-    return _task_to_response(task)
-
-
-@router.post("/{task_id}/notes", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
-async def add_task_note(
-    task_id: UUID,
-    request: AddNoteRequest,
-    fastapi_request: Request,
-    db: Session = Depends(get_db),
-):
-    """
-    Add a note to a task (UC-008).
-    
-    Notes form a timeline of comments and updates on a task.
-    """
-    note_repo = SqlAlchemyNoteRepository(db)
-    task_repo = SqlAlchemyTaskRepository(db)
-    
-    event_bus = fastapi_request.app.state.event_bus
-    
-    use_case = AddTaskNoteUseCase(
-        note_repository=note_repo,
-        task_repository=task_repo,
-        event_bus=event_bus,
-    )
-    
-    note = use_case.execute(
-        task_id=task_id,
-        content=request.content,
-        author_id=request.author_id,
-    )
-    
-    db.commit()
-    
-    return _note_to_response(note)
-
-
-@router.get("/{task_id}/notes", response_model=NoteListResponse)
-async def list_task_notes(
-    task_id: UUID,
-    db: Session = Depends(get_db),
-):
-    """List all notes for a task, ordered by creation time."""
-    task_repo = SqlAlchemyTaskRepository(db)
-    note_repo = SqlAlchemyNoteRepository(db)
-    
-    # Verify task exists
-    task = task_repo.find_by_id(task_id)
+    with uow:
+        task = uow.tasks.find_by_id(TaskId(payload.task_id))
+        project = uow.projects.find_by_id(task.project_id) if task else None
     if task is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task with id {task_id} not found"
-        )
-    
-    notes = note_repo.find_by_task_id(task_id)
-    
-    return NoteListResponse(
-        notes=[_note_to_response(n) for n in notes]
-    )
+        raise HTTPException(status_code=404, detail="Task not found")
+    if project and not project.is_manager(current_user.id):
+        raise HTTPException(status_code=403, detail="Manager access required")
+
+    use_case = AddTaskDependencyUseCase(uow=uow)
+    use_case.execute(TaskDependencyInput(
+        task_id=TaskId(payload.task_id),
+        depends_on_id=TaskId(payload.depends_on_id),
+    ))
+    return {"status": "ok"}
 
 
-@router.post("/{task_id}/dependencies", response_model=TaskDependencyResponse, status_code=status.HTTP_201_CREATED)
-async def add_task_dependency(
-    task_id: UUID,
-    request: AddDependencyRequest,
-    fastapi_request: Request,
-    db: Session = Depends(get_db),
+@router.delete("/dependencies")
+def remove_dependency(
+    payload: DependencyRequest,
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
 ):
-    """
-    Add a dependency to a task (UC-010).
-    
-    When a blocking dependency is added and the blocker task is not done,
-    the dependent task is automatically blocked.
-    """
-    task_repo = SqlAlchemyTaskRepository(db)
-    dep_repo = SqlAlchemyTaskDependencyRepository(db)
-    note_repo = SqlAlchemyNoteRepository(db)
-    
-    event_bus = fastapi_request.app.state.event_bus
-    
-    use_case = AddTaskDependencyUseCase(
-        task_repository=task_repo,
-        task_dependency_repository=dep_repo,
-        note_repository=note_repo,
-        event_bus=event_bus,
-    )
-    
-    dependency = use_case.execute(
-        task_id=task_id,
-        depends_on_task_id=request.depends_on_task_id,
-        dependency_type=request.dependency_type,
-    )
-    
-    db.commit()
-    
-    return _dependency_to_response(dependency)
-
-
-@router.get("/{task_id}/dependencies", response_model=DependencyListResponse)
-async def list_task_dependencies(
-    task_id: UUID,
-    db: Session = Depends(get_db),
-):
-    """List all dependencies for a task (what this task depends on)."""
-    task_repo = SqlAlchemyTaskRepository(db)
-    dep_repo = SqlAlchemyTaskDependencyRepository(db)
-    
-    # Verify task exists
-    task = task_repo.find_by_id(task_id)
+    with uow:
+        task = uow.tasks.find_by_id(TaskId(payload.task_id))
+        project = uow.projects.find_by_id(task.project_id) if task else None
     if task is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task with id {task_id} not found"
-        )
-    
-    dependencies = dep_repo.find_by_task_id(task_id)
-    
-    return DependencyListResponse(
-        dependencies=[_dependency_to_response(d) for d in dependencies]
-    )
+        raise HTTPException(status_code=404, detail="Task not found")
+    if project and not project.is_manager(current_user.id):
+        raise HTTPException(status_code=403, detail="Manager access required")
+
+    use_case = RemoveTaskDependencyUseCase(uow=uow)
+    use_case.execute(TaskDependencyInput(
+        task_id=TaskId(payload.task_id),
+        depends_on_id=TaskId(payload.depends_on_id),
+    ))
+    return {"status": "ok"}
 
 
-@router.delete("/{task_id}/dependencies/{dependency_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_task_dependency(
+@router.post("/{task_id}/cancel")
+def cancel_task(
     task_id: UUID,
-    dependency_id: UUID,
-    request: Request,
-    actor_user_id: Optional[UUID] = None,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
 ):
-    """
-    Remove a dependency between tasks.
-    
-    If the removed dependency was of type BLOCKS and no remaining blocking
-    dependencies exist, the task will be automatically unblocked (status changes
-    from blocked → todo). Status will not change if task is already doing or done.
-    
-    Only team managers can remove dependencies. In MVP, actor_user_id is optional
-    and permission check is skipped if not provided.
-    
-    Note: actor_user_id is a temporary MVP mechanism. In production, this value
-    MUST come from the authenticated request context (JWT/session), not from client input.
-    """
-    task_repo = SqlAlchemyTaskRepository(db)
-    dep_repo = SqlAlchemyTaskDependencyRepository(db)
-    project_repo = SqlAlchemyProjectRepository(db)
-    note_repo = SqlAlchemyNoteRepository(db)
-    
-    event_bus = request.app.state.event_bus
-    
-    team_member_repo = None
-    if SqlAlchemyTeamMemberRepository:
-        team_member_repo = SqlAlchemyTeamMemberRepository(db)
-    
-    use_case = RemoveTaskDependencyUseCase(
-        task_repository=task_repo,
-        task_dependency_repository=dep_repo,
-        project_repository=project_repo,
-        note_repository=note_repo,
-        team_member_repository=team_member_repo,
-        event_bus=event_bus,
-    )
-    
-    try:
-        use_case.execute(
-            task_id=task_id,
-            dependency_id=dependency_id,
-            actor_user_id=actor_user_id,
-        )
-    except BusinessRuleViolation as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=exc.message,
-        ) from exc
-    
-    db.commit()
+    with uow:
+        task = uow.tasks.find_by_id(TaskId(task_id))
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        project = uow.projects.find_by_id(task.project_id)
+        if project and not project.is_manager(current_user.id):
+            raise HTTPException(status_code=403, detail="Manager access required")
+
+    use_case = CancelTaskUseCase(uow=uow)
+    output = use_case.execute(TaskId(task_id))
+    return {"id": str(output.id), "status": output.status.value}
 
 
-@router.patch("/{task_id}/progress", response_model=TaskResponse)
-async def update_task_progress(
+@router.post("/{task_id}/select")
+def select_task(
     task_id: UUID,
-    request: UpdateProgressRequest,
-    fastapi_request: Request,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
 ):
-    """
-    Update task progress manually (UC-023).
-    
-    Sets the completion percentage (0-100) and marks it as manually set.
-    
-    Note: user_id is a temporary MVP mechanism. In production, this value
-    MUST come from the authenticated request context (JWT/session), not from client input.
-    """
-    task_repo = SqlAlchemyTaskRepository(db)
-    note_repo = SqlAlchemyNoteRepository(db)
-    
-    event_bus = fastapi_request.app.state.event_bus
-    
-    use_case = UpdateTaskProgressManualUseCase(
-        task_repository=task_repo,
-        note_repository=note_repo,
-        event_bus=event_bus,
-    )
-    
-    task = use_case.execute(
-        task_id=task_id,
-        completion_percentage=request.completion_percentage,
-        user_id=request.user_id,
-    )
-
-    db.commit()
-
-    return _task_to_response(task)
+    use_case = SelectTaskUseCase(uow=uow, event_bus=uow.event_bus)
+    output = use_case.execute(SelectTaskInput(
+        task_id=TaskId(task_id),
+        user_id=current_user.id,
+    ))
+    return {"id": str(output.id), "status": output.status.value, "assigned_to": str(output.assigned_to)}
 
 
-@router.get("/{task_id}/delay-chain", response_model=DelayChainResponse)
-async def get_task_delay_chain(
+@router.post("/abandon")
+def abandon_task(
+    payload: AbandonTaskRequest,
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+):
+    use_case = AbandonTaskUseCase(uow=uow, event_bus=uow.event_bus)
+    output = use_case.execute(AbandonTaskInput(
+        task_id=TaskId(payload.task_id),
+        user_id=current_user.id,
+        abandonment_type=payload.abandonment_type,
+        note=payload.note,
+    ))
+    return {"id": str(output.id), "status": output.status.value}
+
+
+@router.post("/reports")
+def add_report(
+    payload: TaskReportRequest,
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+):
+    use_case = AddTaskReportUseCase(uow=uow)
+    output = use_case.execute(TaskReportInput(
+        task_id=TaskId(payload.task_id),
+        author_id=current_user.id,
+        progress=payload.progress,
+        source=ProgressSource.MANUAL,
+        note=payload.note,
+    ))
+    return {"id": str(output.id), "progress": output.progress}
+
+
+@router.post("/{task_id}/progress/llm")
+def calculate_progress(
     task_id: UUID,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
 ):
-    """
-    Get the delay chain for a task (UC-030).
+    use_case = CalculateProgressLlmUseCase(uow=uow)
+    output = use_case.execute(CalculateProgressInput(
+        task_id=TaskId(task_id),
+        author_id=current_user.id,
+    ))
+    return {"id": str(output.id), "progress": output.progress}
 
-    Returns the complete causal chain of schedule changes for a task,
-    enabling root cause analysis of delays.
 
-    Example response:
-        Task D is 4 days delayed
-        ↳ caused by Task C (shifted 2 days)
-           ↳ caused by Task B (shifted 2 days)
-              ↳ caused by Task A (root cause - completed late)
+@router.post("/{task_id}/progress/manual")
+def update_progress(
+    task_id: UUID,
+    payload: ProgressUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+):
+    use_case = UpdateProgressManualUseCase(uow=uow)
+    output = use_case.execute(TaskReportInput(
+        task_id=TaskId(task_id),
+        author_id=current_user.id,
+        progress=payload.progress,
+        source=ProgressSource.MANUAL,
+        note=payload.note,
+    ))
+    return {"id": str(output.id), "progress": output.progress}
 
-    This endpoint supports i18n-ready responses - the reason enum
-    can be translated on the client side.
-    """
-    uow = SqlAlchemyUnitOfWork()
 
-    use_case = GetDelayChainUseCase(uow=uow)
-
-    try:
-        result = use_case.execute(task_id=task_id)
-    except BusinessRuleViolation as exc:
-        if exc.code == "task_not_found":
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(exc.message),
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc.message),
-        ) from exc
-
-    # Convert DTO to response
-    entries = [
-        DelayChainEntryResponse(
-            task_id=str(entry.task_id),
-            task_title=entry.task_title,
-            old_expected_start=entry.old_expected_start.isoformat() if entry.old_expected_start else None,
-            old_expected_end=entry.old_expected_end.isoformat() if entry.old_expected_end else None,
-            new_expected_start=entry.new_expected_start.isoformat() if entry.new_expected_start else None,
-            new_expected_end=entry.new_expected_end.isoformat() if entry.new_expected_end else None,
-            reason=entry.reason,
-            caused_by_task_id=str(entry.caused_by_task_id) if entry.caused_by_task_id else None,
-            caused_by_task_title=entry.caused_by_task_title,
-            changed_by_user_id=str(entry.changed_by_user_id) if entry.changed_by_user_id else None,
-            created_at=entry.created_at.isoformat(),
-        )
-        for entry in result.entries
-    ]
-
-    return DelayChainResponse(
-        task_id=str(result.task_id),
-        task_title=result.task_title,
-        is_delayed=result.is_delayed,
-        total_delay_days=result.total_delay_days,
-        entries=entries,
-        root_cause_task_id=str(result.root_cause_task_id) if result.root_cause_task_id else None,
-        root_cause_task_title=result.root_cause_task_title,
-    )
+@router.post("/{task_id}/complete")
+def complete_task(
+    task_id: UUID,
+    current_user: User = Depends(get_current_user),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+):
+    use_case = CompleteTaskUseCase(uow=uow, event_bus=uow.event_bus)
+    output = use_case.execute(TaskId(task_id))
+    return {"id": str(output.id), "status": output.status.value}
